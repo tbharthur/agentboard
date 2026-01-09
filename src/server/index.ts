@@ -1,3 +1,4 @@
+import type { ServerWebSocket } from 'bun'
 import { Hono } from 'hono'
 import { serveStatic } from 'hono/bun'
 import { config } from './config'

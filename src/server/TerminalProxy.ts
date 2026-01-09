@@ -1,11 +1,21 @@
+import type { FileSink } from 'bun'
+
 interface TerminalCallbacks {
   onData: (data: string) => void
   onExit?: () => void
 }
 
+interface PtyProcess {
+  stdin: FileSink
+  stdout: ReadableStream<Uint8Array>
+  stderr: ReadableStream<Uint8Array>
+  exited: Promise<number>
+  kill(): void
+  resize?: (cols: number, rows: number) => void
+}
+
 export class TerminalProxy {
-  private process: Subprocess | null = null
-  private writer: WritableStreamDefaultWriter<Uint8Array> | null = null
+  private process: PtyProcess | null = null
   private decoder = new TextDecoder()
   private encoder = new TextEncoder()
 
@@ -28,17 +38,15 @@ export class TerminalProxy {
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
-      pty: true,
       env: {
         ...process.env,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
         TMUX: undefined,
       },
-    })
+    }) as unknown as PtyProcess
 
     this.process = proc
-    this.writer = proc.stdin.getWriter()
 
     this.readStream(proc.stdout)
     this.readStream(proc.stderr)
@@ -49,20 +57,16 @@ export class TerminalProxy {
   }
 
   write(data: string): void {
-    if (!this.writer) {
+    if (!this.process) {
       return
     }
 
-    void this.writer.write(this.encoder.encode(data))
+    this.process.stdin.write(this.encoder.encode(data))
   }
 
   resize(cols: number, rows: number): void {
-    const proc = this.process as
-      | (Subprocess & { resize?: (cols: number, rows: number) => void })
-      | null
-
-    if (proc?.resize) {
-      proc.resize(cols, rows)
+    if (this.process?.resize) {
+      this.process.resize(cols, rows)
       return
     }
 
@@ -94,7 +98,6 @@ export class TerminalProxy {
     }
 
     this.process = null
-    this.writer = null
   }
 
   private async readStream(stream: ReadableStream<Uint8Array> | null) {
