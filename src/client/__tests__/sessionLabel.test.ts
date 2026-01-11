@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session } from '@shared/types'
-import {
-  formatCommandLabel,
-  getPathLeaf,
-  inferAgentFromLogFile,
-} from '../utils/sessionLabel'
+import { formatCommandLabel, getPathLeaf } from '../utils/sessionLabel'
 
 const baseSession: Session = {
   id: 'test-session',
@@ -58,23 +54,5 @@ describe('getPathLeaf', () => {
 
   test('handles Windows separators', () => {
     expect(getPathLeaf('C:\\Users\\me\\project')).toBe('project')
-  })
-})
-
-describe('inferAgentFromLogFile', () => {
-  test('detects claude logs', () => {
-    expect(
-      inferAgentFromLogFile('/Users/me/.claude/projects/app/123.jsonl')
-    ).toBe('claude')
-  })
-
-  test('detects codex logs', () => {
-    expect(
-      inferAgentFromLogFile('/Users/me/.codex/sessions/abc.jsonl')
-    ).toBe('codex')
-  })
-
-  test('returns undefined for unrelated logs', () => {
-    expect(inferAgentFromLogFile('/tmp/agentboard.jsonl')).toBeUndefined()
   })
 })

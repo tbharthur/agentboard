@@ -1,8 +1,4 @@
-export type SessionStatus =
-  | 'working'
-  | 'needs_approval'
-  | 'waiting'
-  | 'unknown'
+export type SessionStatus = 'working' | 'waiting' | 'unknown'
 
 export type SessionSource = 'managed' | 'external'
 export type AgentType = 'claude' | 'codex'
@@ -14,7 +10,6 @@ export interface Session {
   projectPath: string
   status: SessionStatus
   lastActivity: string
-  logFile?: string
   agentType?: AgentType
   source: SessionSource
   command?: string
@@ -23,6 +18,7 @@ export interface Session {
 export type ServerMessage =
   | { type: 'sessions'; sessions: Session[] }
   | { type: 'session-update'; session: Session }
+  | { type: 'session-created'; session: Session }
   | { type: 'terminal-output'; sessionId: string; data: string }
   | { type: 'error'; message: string }
 
@@ -31,7 +27,7 @@ export type ClientMessage =
   | { type: 'terminal-detach'; sessionId: string }
   | { type: 'terminal-input'; sessionId: string; data: string }
   | { type: 'terminal-resize'; sessionId: string; cols: number; rows: number }
-  | { type: 'session-create'; projectPath: string; name?: string }
+  | { type: 'session-create'; projectPath: string; name?: string; command?: string }
   | { type: 'session-kill'; sessionId: string }
   | { type: 'session-rename'; sessionId: string; newName: string }
   | { type: 'session-refresh' }

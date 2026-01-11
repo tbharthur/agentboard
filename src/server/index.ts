@@ -5,28 +5,38 @@ import { config } from './config'
 import { ensureTmux } from './prerequisites'
 import { SessionManager } from './SessionManager'
 import { SessionRegistry } from './SessionRegistry'
-import { StatusWatcher } from './StatusWatcher'
 import { TerminalProxy } from './TerminalProxy'
 import type { ClientMessage, ServerMessage } from '../shared/types'
 
+function checkPortAvailable(port: number): void {
+  const result = Bun.spawnSync(['lsof', '-i', `:${port}`, '-t'])
+  const pids = result.stdout.toString().trim()
+  if (pids) {
+    const pidList = pids.split('\n').filter(Boolean)
+    const pid = pidList[0]
+    // Get process name
+    const nameResult = Bun.spawnSync(['ps', '-p', pid, '-o', 'comm='])
+    const processName = nameResult.stdout.toString().trim() || 'unknown'
+    console.error(`\nPort ${port} already in use by PID ${pid} (${processName})`)
+    console.error(`Run: kill ${pid}\n`)
+    process.exit(1)
+  }
+}
+
+checkPortAvailable(config.port)
 ensureTmux()
 
 const app = new Hono()
 const sessionManager = new SessionManager()
 const registry = new SessionRegistry()
-const statusWatcher = new StatusWatcher(registry)
-statusWatcher.start()
 
-async function refreshSessions() {
+function refreshSessions() {
   const sessions = sessionManager.listWindows()
   registry.replaceSessions(sessions)
-  await statusWatcher.syncSessions(registry.getAll())
 }
 
-await refreshSessions()
-setInterval(() => {
-  void refreshSessions()
-}, config.refreshIntervalMs)
+refreshSessions()
+setInterval(refreshSessions, config.refreshIntervalMs)
 
 registry.on('session-update', (session) => {
   broadcast({ type: 'session-update', session })
@@ -112,7 +122,7 @@ function send(ws: ServerWebSocket<WSData>, message: ServerMessage) {
   ws.send(JSON.stringify(message))
 }
 
-async function handleMessage(
+function handleMessage(
   ws: ServerWebSocket<WSData>,
   rawMessage: string | BufferSource
 ) {
@@ -131,12 +141,17 @@ async function handleMessage(
 
   switch (message.type) {
     case 'session-refresh':
-      await refreshSessions()
+      refreshSessions()
       return
     case 'session-create':
       try {
-        sessionManager.createWindow(message.projectPath, message.name)
-        await refreshSessions()
+        const created = sessionManager.createWindow(
+          message.projectPath,
+          message.name,
+          message.command
+        )
+        refreshSessions()
+        send(ws, { type: 'session-created', session: created })
       } catch (error) {
         send(ws, {
           type: 'error',
@@ -146,10 +161,10 @@ async function handleMessage(
       }
       return
     case 'session-kill':
-      await handleKill(message.sessionId, ws)
+      handleKill(message.sessionId, ws)
       return
     case 'session-rename':
-      await handleRename(message.sessionId, message.newName, ws)
+      handleRename(message.sessionId, message.newName, ws)
       return
     case 'terminal-attach':
       attachTerminal(ws, message.sessionId)
@@ -170,10 +185,7 @@ async function handleMessage(
   }
 }
 
-async function handleKill(
-  sessionId: string,
-  ws: ServerWebSocket<WSData>
-) {
+function handleKill(sessionId: string, ws: ServerWebSocket<WSData>) {
   const session = registry.get(sessionId)
   if (!session) {
     send(ws, { type: 'error', message: 'Session not found' })
@@ -186,7 +198,7 @@ async function handleKill(
 
   try {
     sessionManager.killWindow(session.tmuxWindow)
-    await refreshSessions()
+    refreshSessions()
   } catch (error) {
     send(ws, {
       type: 'error',
@@ -196,7 +208,7 @@ async function handleKill(
   }
 }
 
-async function handleRename(
+function handleRename(
   sessionId: string,
   newName: string,
   ws: ServerWebSocket<WSData>
@@ -209,7 +221,7 @@ async function handleRename(
 
   try {
     sessionManager.renameWindow(session.tmuxWindow, newName)
-    await refreshSessions()
+    refreshSessions()
   } catch (error) {
     send(ws, {
       type: 'error',

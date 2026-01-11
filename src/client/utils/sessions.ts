@@ -1,10 +1,9 @@
 import type { Session } from '@shared/types'
 
 const SESSION_STATUS_ORDER: Record<Session['status'], number> = {
-  needs_approval: 0,
+  waiting: 0,
   working: 1,
-  waiting: 2,
-  unknown: 3,
+  unknown: 2,
 }
 
 export function sortSessions(sessions: Session[]): Session[] {

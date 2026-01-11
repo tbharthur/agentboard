@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  DEFAULT_COMMAND,
   DEFAULT_PROJECT_DIR,
   useSettingsStore,
 } from '../stores/settingsStore'
@@ -17,13 +18,18 @@ export default function SettingsModal({
   const setDefaultProjectDir = useSettingsStore(
     (state) => state.setDefaultProjectDir
   )
+  const defaultCommand = useSettingsStore((state) => state.defaultCommand)
+  const setDefaultCommand = useSettingsStore((state) => state.setDefaultCommand)
+
   const [draftDir, setDraftDir] = useState(defaultProjectDir)
+  const [draftCommand, setDraftCommand] = useState(defaultCommand)
 
   useEffect(() => {
     if (isOpen) {
       setDraftDir(defaultProjectDir)
+      setDraftCommand(defaultCommand)
     }
-  }, [defaultProjectDir, isOpen])
+  }, [defaultCommand, defaultProjectDir, isOpen])
 
   if (!isOpen) {
     return null
@@ -31,8 +37,10 @@ export default function SettingsModal({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
-    const trimmed = draftDir.trim()
-    setDefaultProjectDir(trimmed || DEFAULT_PROJECT_DIR)
+    const trimmedDir = draftDir.trim()
+    const trimmedCommand = draftCommand.trim()
+    setDefaultProjectDir(trimmedDir || DEFAULT_PROJECT_DIR)
+    setDefaultCommand(trimmedCommand || DEFAULT_COMMAND)
     onClose()
   }
 
@@ -55,17 +63,30 @@ export default function SettingsModal({
           home directory on the server.
         </p>
 
-        <div className="mt-5">
-          <label className="mb-1.5 block text-xs text-secondary">
-            Default Project Directory
-          </label>
-          <input
-            value={draftDir}
-            onChange={(event) => setDraftDir(event.target.value)}
-            placeholder={DEFAULT_PROJECT_DIR}
-            className="input"
-            autoFocus
-          />
+        <div className="mt-5 space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs text-secondary">
+              Default Project Directory
+            </label>
+            <input
+              value={draftDir}
+              onChange={(event) => setDraftDir(event.target.value)}
+              placeholder={DEFAULT_PROJECT_DIR}
+              className="input"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs text-secondary">
+              Default Command
+            </label>
+            <input
+              value={draftCommand}
+              onChange={(event) => setDraftCommand(event.target.value)}
+              placeholder={DEFAULT_COMMAND}
+              className="input font-mono"
+            />
+          </div>
         </div>
 
         <div className="mt-6 flex justify-end gap-2">

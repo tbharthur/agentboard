@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import type { Session } from '@shared/types'
 import { sortSessions } from '../utils/sessions'
 import { formatCommandLabel } from '../utils/sessionLabel'
@@ -9,27 +10,23 @@ interface SessionListProps {
   loading: boolean
   error: string | null
   onSelect: (sessionId: string) => void
-  onKill: (sessionId: string) => void
   onRename: (sessionId: string, newName: string) => void
 }
 
 const statusBarClass: Record<Session['status'], string> = {
   working: 'status-bar-working',
-  needs_approval: 'status-bar-approval',
   waiting: 'status-bar-waiting',
   unknown: 'status-bar-waiting',
 }
 
 const statusLabel: Record<Session['status'], string> = {
   working: 'Working',
-  needs_approval: 'Approval',
   waiting: 'Waiting',
   unknown: 'Unknown',
 }
 
 const statusTextClass: Record<Session['status'], string> = {
   working: 'text-working',
-  needs_approval: 'text-approval',
   waiting: 'text-waiting',
   unknown: 'text-muted',
 }
@@ -40,21 +37,10 @@ export default function SessionList({
   loading,
   error,
   onSelect,
-  onKill,
   onRename,
 }: SessionListProps) {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const sortedSessions = sortSessions(sessions)
-
-  const handleKill = (session: Session) => {
-    if (session.source !== 'managed') return
-    const confirmed = window.confirm(
-      `Kill session "${session.name}"? This will close the tmux window.`
-    )
-    if (confirmed) {
-      onKill(session.id)
-    }
-  }
 
   const handleRename = (sessionId: string, newName: string) => {
     onRename(sessionId, newName)
@@ -92,20 +78,32 @@ export default function SessionList({
           </div>
         ) : (
           <div className="py-1">
-            {sortedSessions.map((session, index) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                isSelected={session.id === selectedSessionId}
-                isEditing={session.id === editingSessionId}
-                shortcutIndex={index}
-                onSelect={() => onSelect(session.id)}
-                onKill={() => handleKill(session)}
-                onStartEdit={() => setEditingSessionId(session.id)}
-                onCancelEdit={() => setEditingSessionId(null)}
-                onRename={(newName) => handleRename(session.id, newName)}
-              />
-            ))}
+            <AnimatePresence initial={false}>
+              {sortedSessions.map((session, index) => (
+                <motion.div
+                  key={session.id}
+                  layout
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{
+                    layout: { type: 'spring', stiffness: 500, damping: 35 },
+                    opacity: { duration: 0.15 },
+                  }}
+                >
+                  <SessionRow
+                    session={session}
+                    isSelected={session.id === selectedSessionId}
+                    isEditing={session.id === editingSessionId}
+                    shortcutIndex={index}
+                    onSelect={() => onSelect(session.id)}
+                    onStartEdit={() => setEditingSessionId(session.id)}
+                    onCancelEdit={() => setEditingSessionId(null)}
+                    onRename={(newName) => handleRename(session.id, newName)}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         )}
       </div>
@@ -119,7 +117,6 @@ interface SessionRowProps {
   isEditing: boolean
   shortcutIndex: number
   onSelect: () => void
-  onKill: () => void
   onStartEdit: () => void
   onCancelEdit: () => void
   onRename: (newName: string) => void
@@ -131,13 +128,11 @@ function SessionRow({
   isEditing,
   shortcutIndex,
   onSelect,
-  onKill,
   onStartEdit,
   onCancelEdit,
   onRename,
 }: SessionRowProps) {
   const lastActivity = formatRelativeTime(session.lastActivity)
-  const isApproval = session.status === 'needs_approval'
   const shortcutLabel =
     !isEditing && shortcutIndex < 9 ? String(shortcutIndex + 1) : null
   const inputRef = useRef<HTMLInputElement>(null)
@@ -191,7 +186,7 @@ function SessionRow({
 
   return (
     <div
-      className={`session-row group cursor-pointer px-3 py-2 ${isSelected ? 'selected' : ''} ${isApproval ? 'pulse-approval' : ''}`}
+      className={`session-row group cursor-pointer px-3 py-2 ${isSelected ? 'selected' : ''}`}
       role="button"
       tabIndex={0}
       data-testid="session-card"
@@ -242,29 +237,6 @@ function SessionRow({
         </div>
 
         <div className="flex items-center gap-1">
-          {!isEditing && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onStartEdit()
-              }}
-              className="rounded p-1 text-muted opacity-0 transition-opacity hover:bg-surface hover:text-primary group-hover:opacity-100"
-              title="Rename session"
-            >
-              <GearIcon />
-            </button>
-          )}
-          {session.source === 'managed' && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onKill()
-              }}
-              className="btn btn-danger hidden py-0.5 text-[10px] group-hover:flex"
-            >
-              Kill
-            </button>
-          )}
           {shortcutLabel && (
             <span
               className="shortcut-badge hidden md:inline-flex"
@@ -279,25 +251,6 @@ function SessionRow({
         </div>
       </div>
     </div>
-  )
-}
-
-function GearIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
   )
 }
 

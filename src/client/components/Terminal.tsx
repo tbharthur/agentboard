@@ -5,6 +5,7 @@ import { useTerminal } from '../hooks/useTerminal'
 import { useThemeStore, terminalThemes } from '../stores/themeStore'
 import { isIOSDevice } from '../utils/device'
 import TerminalControls from './TerminalControls'
+import { PlusIcon, XCloseIcon, DotsVerticalIcon } from '@untitledui-icons/react/line'
 
 interface TerminalProps {
   session: Session | null
@@ -14,26 +15,26 @@ interface TerminalProps {
   subscribe: (listener: any) => () => void
   onClose: () => void
   onSelectSession: (sessionId: string) => void
-  pendingApprovals: number
+  onNewSession: () => void
+  onKillSession: (sessionId: string) => void
+  onRenameSession: (sessionId: string, newName: string) => void
+  onOpenSettings: () => void
 }
 
 const statusText: Record<Session['status'], string> = {
   working: 'Working',
-  needs_approval: 'Approval',
   waiting: 'Waiting',
   unknown: 'Unknown',
 }
 
 const statusClass: Record<Session['status'], string> = {
   working: 'text-working',
-  needs_approval: 'text-approval',
   waiting: 'text-waiting',
   unknown: 'text-muted',
 }
 
 const statusDot: Record<Session['status'], string> = {
   working: 'bg-working',
-  needs_approval: 'bg-approval',
   waiting: 'bg-waiting',
   unknown: 'bg-muted',
 }
@@ -52,13 +53,23 @@ export default function Terminal({
   subscribe,
   onClose,
   onSelectSession,
-  pendingApprovals,
+  onNewSession,
+  onKillSession,
+  onRenameSession,
+  onOpenSettings,
 }: TerminalProps) {
   const theme = useThemeStore((state) => state.theme)
+  const toggleTheme = useThemeStore((state) => state.toggleTheme)
   const terminalTheme = terminalThemes[theme]
   const isiOS = isIOSDevice()
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isSelectingText, setIsSelectingText] = useState(false)
+  const [showEndConfirm, setShowEndConfirm] = useState(false)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const moreMenuRef = useRef<HTMLDivElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem('terminal-font-size')
     return saved ? parseInt(saved, 10) : 13
@@ -88,6 +99,58 @@ export default function Terminal({
   const scrollToBottom = useCallback(() => {
     terminalRef.current?.scrollToBottom()
   }, [terminalRef])
+
+  // Close more menu when clicking outside
+  useEffect(() => {
+    if (!showMoreMenu) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showMoreMenu])
+
+  // Focus rename input when renaming
+  useEffect(() => {
+    if (isRenaming && renameInputRef.current) {
+      renameInputRef.current.focus()
+      renameInputRef.current.select()
+    }
+  }, [isRenaming])
+
+  const handleEndSession = () => {
+    if (!session) return
+    onKillSession(session.id)
+    setShowEndConfirm(false)
+  }
+
+  const handleStartRename = () => {
+    if (!session) return
+    setRenameValue(session.name)
+    setIsRenaming(true)
+    setShowMoreMenu(false)
+  }
+
+  const handleRenameSubmit = () => {
+    if (!session) return
+    const trimmed = renameValue.trim()
+    if (trimmed && trimmed !== session.name) {
+      onRenameSession(session.id, trimmed)
+    }
+    setIsRenaming(false)
+  }
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleRenameSubmit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setIsRenaming(false)
+    }
+  }
 
   useEffect(() => {
     if (!isiOS || !session) {
@@ -390,48 +453,118 @@ export default function Terminal({
       {/* Terminal header - only show when session selected */}
       {session && (
         <div className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-elevated px-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={onClose}
-              className="btn py-1 text-[11px] md:hidden"
+              className="btn py-1 text-[11px] md:hidden shrink-0"
             >
               Back
             </button>
-            <span className="text-sm font-medium text-primary">
-              {session.name}
-            </span>
-            <span className={`text-xs ${statusClass[session.status]}`}>
+            {isRenaming ? (
+              <input
+                ref={renameInputRef}
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onBlur={handleRenameSubmit}
+                onKeyDown={handleRenameKeyDown}
+                className="w-full max-w-[200px] rounded border border-border bg-surface px-2 py-0.5 text-sm font-medium text-primary outline-none focus:border-accent"
+              />
+            ) : (
+              <span className="text-sm font-medium text-primary truncate">
+                {session.name}
+              </span>
+            )}
+            <span className={`text-xs shrink-0 ${statusClass[session.status]}`}>
               {statusText[session.status]}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            {pendingApprovals > 0 && (
-              <span className="flex items-center gap-1.5 rounded bg-approval/20 px-2 py-0.5 text-xs font-medium text-approval md:hidden">
-                {pendingApprovals} pending
-              </span>
-            )}
+          <div className="flex items-center gap-1.5 shrink-0">
             {connectionStatus !== 'connected' && (
               <span className="text-xs text-approval">
                 {connectionStatus}
               </span>
             )}
-            {/* Font size controls - mobile only */}
-            <div className="flex items-center gap-1 md:hidden">
+
+            {/* New session button - mobile only (desktop has it in header) */}
+            <button
+              onClick={onNewSession}
+              className="flex h-7 w-7 items-center justify-center rounded bg-surface border border-border text-secondary hover:bg-hover hover:text-primary active:scale-95 transition-all md:hidden"
+              title="New session"
+            >
+              <PlusIcon width={16} height={16} />
+            </button>
+
+            {/* End session button - only for managed sessions */}
+            {session.source === 'managed' && (
               <button
-                onClick={() => adjustFontSize(-1)}
-                className="flex h-7 w-7 items-center justify-center rounded bg-surface border border-border text-secondary active:bg-hover"
-                title="Decrease font size"
+                onClick={() => setShowEndConfirm(true)}
+                className="flex h-7 w-7 items-center justify-center rounded bg-danger/10 border border-danger/30 text-danger hover:bg-danger/20 active:scale-95 transition-all"
+                title="End session"
               >
-                <span className="text-sm font-bold">−</span>
+                <XCloseIcon width={16} height={16} />
               </button>
+            )}
+
+            {/* More menu */}
+            <div className="relative" ref={moreMenuRef}>
               <button
-                onClick={() => adjustFontSize(1)}
-                className="flex h-7 w-7 items-center justify-center rounded bg-surface border border-border text-secondary active:bg-hover"
-                title="Increase font size"
+                onClick={() => setShowMoreMenu(!showMoreMenu)}
+                className="flex h-7 w-7 items-center justify-center rounded bg-surface border border-border text-secondary hover:bg-hover hover:text-primary active:scale-95 transition-all"
+                title="More options"
               >
-                <span className="text-sm font-bold">+</span>
+                <DotsVerticalIcon width={16} height={16} />
               </button>
+
+              {showMoreMenu && (
+                <div className="absolute right-0 top-full mt-1 z-20 min-w-[160px] rounded-md border border-border bg-elevated shadow-lg py-1">
+                  <button
+                    onClick={handleStartRename}
+                    className="w-full px-3 py-2 text-left text-sm text-secondary hover:bg-hover hover:text-primary"
+                  >
+                    Rename
+                  </button>
+                  <div className="border-t border-border my-1" />
+                  <div className="px-3 py-2">
+                    <div className="text-xs text-muted mb-2">Font Size</div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => adjustFontSize(-1)}
+                        className="flex h-7 w-7 items-center justify-center rounded bg-surface border border-border text-secondary hover:bg-hover"
+                      >
+                        <span className="text-sm font-bold">−</span>
+                      </button>
+                      <span className="text-sm text-secondary w-6 text-center">{fontSize}</span>
+                      <button
+                        onClick={() => adjustFontSize(1)}
+                        className="flex h-7 w-7 items-center justify-center rounded bg-surface border border-border text-secondary hover:bg-hover"
+                      >
+                        <span className="text-sm font-bold">+</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="border-t border-border my-1" />
+                  <button
+                    onClick={() => {
+                      toggleTheme()
+                      setShowMoreMenu(false)
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-secondary hover:bg-hover hover:text-primary"
+                  >
+                    {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      onOpenSettings()
+                      setShowMoreMenu(false)
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-secondary hover:bg-hover hover:text-primary"
+                  >
+                    Settings
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -512,6 +645,34 @@ export default function Terminal({
           onSelectSession={onSelectSession}
           hideSessionSwitcher
         />
+      )}
+
+      {/* End session confirmation modal */}
+      {showEndConfirm && session && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-sm rounded-lg border border-border bg-elevated p-4 shadow-xl">
+            <h3 className="text-base font-medium text-primary mb-2">
+              End Session
+            </h3>
+            <p className="text-sm text-secondary mb-4">
+              End "{session.name}"? The process will be terminated. Conversation history is preserved in logs.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowEndConfirm(false)}
+                className="btn py-1.5 px-3 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEndSession}
+                className="btn btn-danger py-1.5 px-3 text-sm"
+              >
+                End Session
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   )

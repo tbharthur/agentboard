@@ -3,11 +3,11 @@ import { useEffect, useState } from 'react'
 interface NewSessionModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreate: (projectPath: string, name?: string) => void
+  onCreate: (projectPath: string, name?: string, command?: string) => void
   defaultProjectDir: string
+  defaultCommand: string
   lastProjectPath?: string | null
   activeProjectPath?: string
-  activeProjectName?: string
 }
 
 export default function NewSessionModal({
@@ -15,25 +15,28 @@ export default function NewSessionModal({
   onClose,
   onCreate,
   defaultProjectDir,
+  defaultCommand,
   lastProjectPath,
   activeProjectPath,
-  activeProjectName,
 }: NewSessionModalProps) {
   const [projectPath, setProjectPath] = useState('')
   const [name, setName] = useState('')
+  const [command, setCommand] = useState('')
 
   useEffect(() => {
     if (!isOpen) {
       setProjectPath('')
       setName('')
+      setCommand('')
       return
     }
     // Priority: active session -> last used -> default
     const basePath =
       activeProjectPath?.trim() || lastProjectPath || defaultProjectDir
     setProjectPath(basePath)
-    setName(activeProjectName?.trim() || '')
-  }, [activeProjectName, activeProjectPath, defaultProjectDir, isOpen, lastProjectPath])
+    setName('')
+    setCommand(defaultCommand)
+  }, [activeProjectPath, defaultCommand, defaultProjectDir, isOpen, lastProjectPath])
 
   useEffect(() => {
     if (!isOpen) return
@@ -76,7 +79,12 @@ export default function NewSessionModal({
     if (!resolvedPath) {
       return
     }
-    onCreate(resolvedPath, name.trim() || undefined)
+    const trimmedCommand = command.trim()
+    onCreate(
+      resolvedPath,
+      name.trim() || undefined,
+      trimmedCommand || undefined
+    )
     onClose()
   }
 
@@ -124,13 +132,24 @@ export default function NewSessionModal({
           </div>
           <div>
             <label className="mb-1.5 block text-xs text-secondary">
-              Display Name (optional)
+              Display Name
             </label>
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="my-project"
-              className="input"
+              placeholder="auto-generated"
+              className="input placeholder:italic"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs text-secondary">
+              Command
+            </label>
+            <input
+              value={command}
+              onChange={(event) => setCommand(event.target.value)}
+              placeholder={defaultCommand}
+              className="input font-mono"
             />
           </div>
         </div>

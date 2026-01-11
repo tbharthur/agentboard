@@ -141,7 +141,23 @@ export function useTerminal({
     terminal.open(container)
     fitAddon.fit()
 
+    // Handle paste events - listen on both terminal element and the hidden textarea
+    const handlePaste = (e: Event) => {
+      e.preventDefault()
+      const clipboardEvent = e as ClipboardEvent
+      const text = clipboardEvent.clipboardData?.getData('text')
+      const attached = attachedSessionRef.current
+      if (text && attached) {
+        sendMessageRef.current({ type: 'terminal-input', sessionId: attached, data: text })
+      }
+    }
+    terminal.element?.addEventListener('paste', handlePaste)
+    // Also listen on the helper textarea where focus actually goes
+    const textarea = terminal.element?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
+    textarea?.addEventListener('paste', handlePaste)
+
     terminal.attachCustomKeyEventHandler((event) => {
+      // Cmd/Ctrl+C: copy selection
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
         if (terminal.hasSelection()) {
           const selection = terminal.getSelection()
@@ -150,6 +166,21 @@ export function useTerminal({
           }
           return false
         }
+      }
+
+      // Cmd/Ctrl+V: paste from clipboard
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v' && event.type === 'keydown') {
+        const attached = attachedSessionRef.current
+        if (attached && navigator.clipboard) {
+          void navigator.clipboard.readText().then((text) => {
+            if (text) {
+              sendMessageRef.current({ type: 'terminal-input', sessionId: attached, data: text })
+            }
+          }).catch(() => {
+            // Clipboard access denied - ignore
+          })
+        }
+        return false
       }
 
       // Ctrl+Backspace: delete word backward (browser eats this otherwise)
@@ -189,6 +220,8 @@ export function useTerminal({
     }
 
     return () => {
+      terminal.element?.removeEventListener('paste', handlePaste)
+      textarea?.removeEventListener('paste', handlePaste)
       if (webglAddonRef.current) {
         try {
           webglAddonRef.current.dispose()

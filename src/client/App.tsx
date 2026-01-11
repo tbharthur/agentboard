@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Session, ServerMessage } from '@shared/types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ServerMessage } from '@shared/types'
 import Header from './components/Header'
 import SessionList from './components/SessionList'
 import Terminal from './components/Terminal'
@@ -9,8 +9,6 @@ import { useSessionStore } from './stores/sessionStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useThemeStore } from './stores/themeStore'
 import { useWebSocket } from './hooks/useWebSocket'
-import { useNotifications } from './hooks/useNotifications'
-import { useFaviconBadge } from './hooks/useFaviconBadge'
 import { useVisualViewport } from './hooks/useVisualViewport'
 import { sortSessions } from './utils/sessions'
 
@@ -38,20 +36,16 @@ export default function App() {
   const defaultProjectDir = useSettingsStore(
     (state) => state.defaultProjectDir
   )
+  const defaultCommand = useSettingsStore((state) => state.defaultCommand)
   const lastProjectPath = useSettingsStore((state) => state.lastProjectPath)
   const setLastProjectPath = useSettingsStore(
     (state) => state.setLastProjectPath
   )
 
   const { sendMessage, subscribe } = useWebSocket()
-  const { notify, requestPermission } = useNotifications()
 
   // Handle mobile keyboard viewport adjustments
   useVisualViewport()
-
-  useEffect(() => {
-    requestPermission()
-  }, [requestPermission])
 
   useEffect(() => {
     const unsubscribe = subscribe((message: ServerMessage) => {
@@ -61,6 +55,9 @@ export default function App() {
       if (message.type === 'session-update') {
         updateSession(message.session)
       }
+      if (message.type === 'session-created') {
+        setSelectedSessionId(message.session.id)
+      }
       if (message.type === 'error') {
         setServerError(message.message)
         window.setTimeout(() => setServerError(null), 6000)
@@ -68,7 +65,7 @@ export default function App() {
     })
 
     return () => { unsubscribe() }
-  }, [sendMessage, setSessions, subscribe, updateSession])
+  }, [sendMessage, setSelectedSessionId, setSessions, subscribe, updateSession])
 
   const selectedSession = useMemo(() => {
     return sessions.find((session) => session.id === selectedSessionId) || null
@@ -83,34 +80,38 @@ export default function App() {
 
   const sortedSessions = useMemo(() => sortSessions(sessions), [sessions])
 
-  const needsApprovalCount = useMemo(
-    () => sessions.filter((session) => session.status === 'needs_approval').length,
-    [sessions]
-  )
-
-  useFaviconBadge(needsApprovalCount > 0)
-
-  const previousStatuses = useRef<Map<string, Session['status']>>(new Map())
-
-  useEffect(() => {
-    const prev = previousStatuses.current
-    for (const session of sessions) {
-      const previousStatus = prev.get(session.id)
-      if (
-        session.status === 'needs_approval' &&
-        previousStatus !== 'needs_approval'
-      ) {
-        notify('Agentboard', `${session.name} needs approval.`)
-      }
-      prev.set(session.id, session.status)
-    }
-  }, [notify, sessions])
+  const handleKillSession = useCallback((sessionId: string) => {
+    sendMessage({ type: 'session-kill', sessionId })
+  }, [sendMessage])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isModalOpen) return
+      if (event.defaultPrevented) return
       if (!(event.metaKey || event.ctrlKey)) return
-      if (event.shiftKey || event.altKey) return
+      if (event.altKey) return
+
+      const key = event.key
+
+      // Cmd+Shift+Enter: New session
+      if (event.shiftKey && key === 'Enter') {
+        event.preventDefault()
+        if (!isModalOpen) {
+          setIsModalOpen(true)
+        }
+        return
+      }
+
+      // Cmd+Shift+K: Kill current session
+      if (event.shiftKey && key.toLowerCase() === 'k') {
+        event.preventDefault()
+        if (selectedSessionId && !isModalOpen) {
+          handleKillSession(selectedSessionId)
+        }
+        return
+      }
+
+      // Other shortcuts require no shift and no modal open
+      if (event.shiftKey || isModalOpen) return
 
       const activeElement = document.activeElement
       if (activeElement instanceof HTMLElement) {
@@ -127,7 +128,7 @@ export default function App() {
         }
       }
 
-      const key = event.key
+      // Cmd+1-9: Switch sessions
       if (!/^[1-9]$/.test(key)) return
 
       const index = Number(key) - 1
@@ -140,26 +141,22 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isModalOpen, setSelectedSessionId, sortedSessions])
+  }, [isModalOpen, selectedSessionId, setSelectedSessionId, sortedSessions, handleKillSession])
 
   const handleNewSession = () => setIsModalOpen(true)
   const handleOpenSettings = () => setIsSettingsOpen(true)
 
-  const handleCreateSession = (projectPath: string, name?: string) => {
-    sendMessage({ type: 'session-create', projectPath, name })
+  const handleCreateSession = (
+    projectPath: string,
+    name?: string,
+    command?: string
+  ) => {
+    sendMessage({ type: 'session-create', projectPath, name, command })
     setLastProjectPath(projectPath)
-  }
-
-  const handleKillSession = (sessionId: string) => {
-    sendMessage({ type: 'session-kill', sessionId })
   }
 
   const handleRenameSession = (sessionId: string, newName: string) => {
     sendMessage({ type: 'session-rename', sessionId, newName })
-  }
-
-  const handleRefresh = () => {
-    sendMessage({ type: 'session-refresh' })
   }
 
   // Apply theme to document
@@ -168,50 +165,46 @@ export default function App() {
   }, [theme])
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <Header
-        connectionStatus={connectionStatus}
-        needsApprovalCount={needsApprovalCount}
-        onNewSession={handleNewSession}
-        onRefresh={handleRefresh}
-        onOpenSettings={handleOpenSettings}
-      />
-
-      <div className="flex min-h-0 flex-1">
-        {/* Sidebar - hidden on mobile when session selected */}
-        <div className={`w-full shrink-0 md:w-60 lg:w-72 ${selectedSession ? 'hidden md:block' : ''}`}>
-          <SessionList
-            sessions={sessions}
-            selectedSessionId={selectedSessionId}
-            onSelect={setSelectedSessionId}
-            onKill={handleKillSession}
-            onRename={handleRenameSession}
-            loading={!hasLoaded}
-            error={connectionError || serverError}
-          />
-        </div>
-
-        {/* Terminal - hero element */}
-        <Terminal
-          session={selectedSession}
-          sessions={sortedSessions}
+    <div className="flex h-full overflow-hidden">
+      {/* Left column: header + sidebar - hidden on mobile when session selected */}
+      <div className={`flex h-full w-full flex-col md:w-60 lg:w-72 md:shrink-0 ${selectedSession ? 'hidden md:flex' : ''}`}>
+        <Header
           connectionStatus={connectionStatus}
-          sendMessage={sendMessage}
-          subscribe={subscribe}
-          onClose={() => setSelectedSessionId(null)}
-          onSelectSession={setSelectedSessionId}
-          pendingApprovals={needsApprovalCount}
+          onNewSession={handleNewSession}
+        />
+        <SessionList
+          sessions={sessions}
+          selectedSessionId={selectedSessionId}
+          onSelect={setSelectedSessionId}
+          onRename={handleRenameSession}
+          loading={!hasLoaded}
+          error={connectionError || serverError}
         />
       </div>
+
+      {/* Terminal - full height on desktop */}
+      <Terminal
+        session={selectedSession}
+        sessions={sortedSessions}
+        connectionStatus={connectionStatus}
+        sendMessage={sendMessage}
+        subscribe={subscribe}
+        onClose={() => setSelectedSessionId(null)}
+        onSelectSession={setSelectedSessionId}
+        onNewSession={handleNewSession}
+        onKillSession={handleKillSession}
+        onRenameSession={handleRenameSession}
+        onOpenSettings={handleOpenSettings}
+      />
 
       <NewSessionModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onCreate={handleCreateSession}
         defaultProjectDir={defaultProjectDir}
+        defaultCommand={defaultCommand}
         lastProjectPath={lastProjectPath}
         activeProjectPath={selectedSession?.projectPath}
-        activeProjectName={selectedSession?.name}
       />
 
       <SettingsModal

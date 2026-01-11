@@ -73,6 +73,8 @@ bun run test:coverage
 bun run lint
 ```
 
+`bun run test:coverage` adds zero-coverage entries for untested source files so line coverage reflects the whole `src` tree (type-only files are skipped).
+
 For browser-level E2E tests:
 
 ```bash

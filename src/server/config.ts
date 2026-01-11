@@ -1,7 +1,3 @@
-import path from 'node:path'
-
-const homeDir = process.env.HOME || process.env.USERPROFILE || ''
-
 export const config = {
   port: Number(process.env.PORT) || 4040,
   tmuxSession: process.env.TMUX_SESSION || 'agentboard',
@@ -10,10 +6,4 @@ export const config = {
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean),
-  claudeProjectsDir:
-    process.env.CLAUDE_PROJECTS_DIR ||
-    path.join(homeDir, '.claude', 'projects'),
-  codexSessionsDir:
-    process.env.CODEX_SESSIONS_DIR ||
-    path.join(homeDir, '.codex', 'sessions'),
 }

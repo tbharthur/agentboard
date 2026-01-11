@@ -12,13 +12,16 @@
     "lint": "oxlint .",
     "typecheck": "tsc --noEmit",
     "test": "bun test src/server/__tests__ src/client/__tests__",
-    "test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-reporter=text src/server/__tests__ src/client/__tests__",
+    "test:coverage": "bun test --coverage --coverage-reporter=lcov src/server/__tests__ src/client/__tests__ && bun run coverage:all",
+    "coverage:all": "bun scripts/coverage-all.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
     "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
+    "@untitledui-icons/react": "^1.0.3",
     "@xterm/addon-clipboard": "^0.2.0",
+    "framer-motion": "^12.25.0",
     "hono": "^4.6.10",
     "node-pty": "^1.1.0",
     "react": "^18.3.1",

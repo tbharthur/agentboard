@@ -1,7 +1,11 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { config } from './config'
-import type { Session } from '../shared/types'
+import { generateSessionName } from './nameGenerator'
+import type { AgentType, Session, SessionStatus } from '../shared/types'
+
+// How many seconds of inactivity before considering a session "waiting"
+const IDLE_THRESHOLD_SECONDS = 2
 
 interface WindowInfo {
   id: string
@@ -35,7 +39,7 @@ export class SessionManager {
     return [...managed, ...externals]
   }
 
-  createWindow(projectPath: string, name?: string): Session {
+  createWindow(projectPath: string, name?: string, command?: string): Session {
     this.ensureSession()
 
     const resolvedPath = resolveProjectPath(projectPath)
@@ -47,28 +51,35 @@ export class SessionManager {
       throw new Error(`Project path does not exist: ${resolvedPath}`)
     }
 
-    const baseName = (name || path.basename(resolvedPath)).trim()
-    if (!baseName) {
-      throw new Error('Session name is required')
-    }
-
-    const safeBase = baseName.replace(/\s+/g, '-')
     const existingNames = new Set(
       this.listWindowsForSession(this.sessionName, 'managed').map(
         (session) => session.name
       )
     )
 
-    const finalName = this.findAvailableName(safeBase, existingNames)
+    let baseName = name?.trim()
+    if (baseName) {
+      baseName = baseName.replace(/\s+/g, '-')
+    } else {
+      // Generate random name, retry if collision
+      do {
+        baseName = generateSessionName()
+      } while (existingNames.has(baseName))
+    }
+
+    const finalCommand = command?.trim() || 'claude'
+    const finalName = this.findAvailableName(baseName, existingNames)
+    const nextIndex = this.findNextAvailableWindowIndex()
+
     runTmux([
       'new-window',
       '-t',
-      this.sessionName,
+      `${this.sessionName}:${nextIndex}`,
       '-n',
       finalName,
       '-c',
       resolvedPath,
-      'claude',
+      finalCommand,
     ])
 
     const sessions = this.listWindowsForSession(this.sessionName, 'managed')
@@ -161,10 +172,11 @@ export class SessionManager {
         name: window.name,
         tmuxWindow: `${sessionName}:${window.id}`,
         projectPath: window.path,
-        status: 'unknown',
+        status: inferStatus(window.activity),
         lastActivity: new Date(
           window.activity ? window.activity * 1000 : Date.now()
         ).toISOString(),
+        agentType: inferAgentType(window.command),
         source,
         command: window.command || undefined,
       }))
@@ -181,6 +193,52 @@ export class SessionManager {
     }
 
     return `${base}-${suffix}`
+  }
+
+  private findNextAvailableWindowIndex(): number {
+    const baseIndex = this.getTmuxBaseIndex()
+    const usedIndices = this.getWindowIndices()
+
+    if (usedIndices.length === 0) {
+      return baseIndex
+    }
+
+    // Find the first gap, or use max + 1
+    const maxIndex = Math.max(...usedIndices)
+    for (let i = baseIndex; i <= maxIndex; i++) {
+      if (!usedIndices.includes(i)) {
+        return i
+      }
+    }
+
+    return maxIndex + 1
+  }
+
+  private getTmuxBaseIndex(): number {
+    try {
+      const output = runTmux(['show-options', '-gv', 'base-index'])
+      return Number.parseInt(output.trim(), 10) || 0
+    } catch {
+      return 0
+    }
+  }
+
+  private getWindowIndices(): number[] {
+    try {
+      const output = runTmux([
+        'list-windows',
+        '-t',
+        this.sessionName,
+        '-F',
+        '#{window_index}',
+      ])
+      return output
+        .split('\n')
+        .map((line) => Number.parseInt(line.trim(), 10))
+        .filter((n) => !Number.isNaN(n))
+    } catch {
+      return []
+    }
   }
 
   private resolveSessionName(tmuxWindow: string): string {
@@ -256,4 +314,33 @@ function resolveProjectPath(value: string): string {
   }
 
   return path.resolve(trimmed)
+}
+
+function inferStatus(activityTimestamp: number): SessionStatus {
+  if (!activityTimestamp) {
+    return 'unknown'
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  const idleSeconds = now - activityTimestamp
+
+  return idleSeconds < IDLE_THRESHOLD_SECONDS ? 'working' : 'waiting'
+}
+
+function inferAgentType(command: string): AgentType | undefined {
+  if (!command) {
+    return undefined
+  }
+
+  const normalized = command.toLowerCase()
+
+  if (normalized === 'claude' || normalized.startsWith('claude ')) {
+    return 'claude'
+  }
+
+  if (normalized === 'codex' || normalized.startsWith('codex ')) {
+    return 'codex'
+  }
+
+  return undefined
 }
