@@ -279,12 +279,17 @@ describe('server message handlers', () => {
 
     websocket.message?.(ws as never, 'not-json')
     websocket.message?.(ws as never, JSON.stringify({ type: 'unknown' }))
+    websocket.message?.(
+      ws as never,
+      JSON.stringify({ type: 'terminal-attach', sessionId: 'missing' })
+    )
 
     expect(sent[0]).toEqual({
       type: 'error',
       message: 'Invalid message payload',
     })
     expect(sent[1]).toEqual({ type: 'error', message: 'Unknown message type' })
+    expect(sent[2]).toEqual({ type: 'error', message: 'Session not found' })
   })
 
   test('refreshes sessions and creates new sessions', async () => {
@@ -322,6 +327,23 @@ describe('server message handlers', () => {
     )
 
     expect(sent.some((message) => message.type === 'session-created')).toBe(true)
+
+    sessionManagerState.createWindow = () => {
+      throw new Error('explode')
+    }
+
+    websocket.message?.(
+      ws as never,
+      JSON.stringify({
+        type: 'session-create',
+        projectPath: '/tmp/new',
+      })
+    )
+
+    expect(sent[sent.length - 1]).toEqual({
+      type: 'error',
+      message: 'explode',
+    })
   })
 
   test('returns errors for kill and rename when sessions are missing', async () => {
@@ -375,7 +397,7 @@ describe('server message handlers', () => {
     }
     sessionManagerState.listWindows = () => [baseSession]
 
-    const { ws } = createWs()
+    const { ws, sent } = createWs()
     const websocket = serveOptions.websocket
     if (!websocket) {
       throw new Error('WebSocket handlers not configured')
@@ -398,6 +420,29 @@ describe('server message handlers', () => {
     expect(renamed).toEqual([
       { tmuxWindow: baseSession.tmuxWindow, name: 'renamed' },
     ])
+
+    sessionManagerState.killWindow = () => {
+      throw new Error('boom')
+    }
+    sessionManagerState.renameWindow = () => {
+      throw new Error('nope')
+    }
+
+    websocket.message?.(
+      ws as never,
+      JSON.stringify({ type: 'session-kill', sessionId: baseSession.id })
+    )
+    websocket.message?.(
+      ws as never,
+      JSON.stringify({
+        type: 'session-rename',
+        sessionId: baseSession.id,
+        newName: 'later',
+      })
+    )
+
+    expect(sent[sent.length - 2]).toEqual({ type: 'error', message: 'boom' })
+    expect(sent[sent.length - 1]).toEqual({ type: 'error', message: 'nope' })
   })
 
   test('attaches terminals and forwards input/output', async () => {
@@ -448,6 +493,13 @@ describe('server message handlers', () => {
     attached?.emitData('output')
     expect(sent.some((message) => message.type === 'terminal-output')).toBe(true)
 
+    websocket.message?.(
+      ws as never,
+      JSON.stringify({ type: 'terminal-detach', sessionId: baseSession.id })
+    )
+    expect(attached?.disposed).toBe(true)
+    expect(ws.data.terminals.has(baseSession.id)).toBe(false)
+
     attached?.emitExit()
     expect(attached?.disposed).toBe(true)
     expect(ws.data.terminals.has(baseSession.id)).toBe(false)
@@ -485,13 +537,37 @@ describe('server fetch handlers', () => {
   })
 
   test('handles paste-image requests with and without files', async () => {
-    const { serveOptions } = await loadIndex()
+    const { serveOptions, registryInstance } = await loadIndex()
     const fetchHandler = serveOptions.fetch
     if (!fetchHandler) {
       throw new Error('Fetch handler not configured')
     }
 
     const server = {} as Bun.Server<unknown>
+    registryInstance.sessions = [baseSession]
+
+    const healthResponse = await fetchHandler.call(
+      server,
+      new Request('http://localhost/api/health'),
+      server
+    )
+    if (!healthResponse) {
+      throw new Error('Expected response for health request')
+    }
+    expect((await healthResponse.json()) as { ok: boolean }).toEqual({ ok: true })
+
+    const sessionsResponse = await fetchHandler.call(
+      server,
+      new Request('http://localhost/api/sessions'),
+      server
+    )
+    if (!sessionsResponse) {
+      throw new Error('Expected response for sessions request')
+    }
+    const sessions = (await sessionsResponse.json()) as Session[]
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.id).toBe(baseSession.id)
+
     const emptyResponse = await fetchHandler.call(
       server,
       new Request('http://localhost/api/paste-image', {
