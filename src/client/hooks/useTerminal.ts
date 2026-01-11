@@ -20,7 +20,7 @@ const EMOJI_TO_TEXT_CHARS = new Set([
  * Add text presentation selector after characters that iOS renders as emoji.
  * This forces the browser to render them as text glyphs instead.
  */
-function forceTextPresentation(data: string): string {
+export function forceTextPresentation(data: string): string {
   let result = ''
   for (const char of data) {
     result += char

@@ -10,11 +10,54 @@ interface NewSessionModalProps {
   activeProjectPath?: string
 }
 
+export type CommandMode = 'claude' | 'codex' | 'custom'
+
 const COMMAND_PRESETS = [
   { label: 'Claude', value: 'claude' },
   { label: 'Codex', value: 'codex' },
   { label: 'Custom', value: '' },
 ] as const
+
+export function getCommandMode(defaultCommand: string): CommandMode {
+  if (defaultCommand === 'claude') return 'claude'
+  if (defaultCommand === 'codex') return 'codex'
+  return 'custom'
+}
+
+export function resolveCommand(commandMode: CommandMode, command: string): string {
+  return commandMode === 'custom' ? command.trim() : commandMode
+}
+
+export function resolveProjectPath({
+  value,
+  activeProjectPath,
+  lastProjectPath,
+  defaultProjectDir,
+}: {
+  value: string
+  activeProjectPath?: string
+  lastProjectPath?: string | null
+  defaultProjectDir: string
+}): string {
+  const trimmedValue = value.trim()
+  const baseDir =
+    activeProjectPath?.trim() || lastProjectPath || defaultProjectDir.trim()
+  if (!trimmedValue) {
+    return baseDir
+  }
+
+  const isAbsolute =
+    trimmedValue.startsWith('/') ||
+    trimmedValue.startsWith('~') ||
+    /^[A-Za-z]:[\\/]/.test(trimmedValue)
+
+  if (isAbsolute || !baseDir) {
+    return trimmedValue
+  }
+
+  const base = baseDir.replace(/[\\/]+$/, '')
+  return `${base}/${trimmedValue}`
+}
 
 export default function NewSessionModal({
   isOpen,
@@ -28,7 +71,7 @@ export default function NewSessionModal({
   const [projectPath, setProjectPath] = useState('')
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
-  const [commandMode, setCommandMode] = useState<'claude' | 'codex' | 'custom'>('claude')
+  const [commandMode, setCommandMode] = useState<CommandMode>('claude')
 
   useEffect(() => {
     if (!isOpen) {
@@ -43,17 +86,9 @@ export default function NewSessionModal({
       activeProjectPath?.trim() || lastProjectPath || defaultProjectDir
     setProjectPath(basePath)
     setName('')
-    // Determine initial command mode from default
-    if (defaultCommand === 'claude') {
-      setCommandMode('claude')
-      setCommand('')
-    } else if (defaultCommand === 'codex') {
-      setCommandMode('codex')
-      setCommand('')
-    } else {
-      setCommandMode('custom')
-      setCommand(defaultCommand)
-    }
+    const nextMode = getCommandMode(defaultCommand)
+    setCommandMode(nextMode)
+    setCommand(nextMode === 'custom' ? defaultCommand : '')
   }, [activeProjectPath, defaultCommand, defaultProjectDir, isOpen, lastProjectPath])
 
   useEffect(() => {
@@ -70,34 +105,18 @@ export default function NewSessionModal({
     return null
   }
 
-  const resolveProjectPath = (value: string) => {
-    const trimmedValue = value.trim()
-    const baseDir =
-      activeProjectPath?.trim() || lastProjectPath || defaultProjectDir.trim()
-    if (!trimmedValue) {
-      return baseDir
-    }
-
-    const isAbsolute =
-      trimmedValue.startsWith('/') ||
-      trimmedValue.startsWith('~') ||
-      /^[A-Za-z]:[\\/]/.test(trimmedValue)
-
-    if (isAbsolute || !baseDir) {
-      return trimmedValue
-    }
-
-    const base = baseDir.replace(/[\\/]+$/, '')
-    return `${base}/${trimmedValue}`
-  }
-
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()
-    const resolvedPath = resolveProjectPath(projectPath)
+    const resolvedPath = resolveProjectPath({
+      value: projectPath,
+      activeProjectPath,
+      lastProjectPath,
+      defaultProjectDir,
+    })
     if (!resolvedPath) {
       return
     }
-    const finalCommand = commandMode === 'custom' ? command.trim() : commandMode
+    const finalCommand = resolveCommand(commandMode, command)
     onCreate(
       resolvedPath,
       name.trim() || undefined,

@@ -22,7 +22,7 @@ const ARROW_KEYS = {
   right: '\x1b[C',
 } as const
 
-type Direction = keyof typeof ARROW_KEYS | null
+export type Direction = keyof typeof ARROW_KEYS | null
 
 const LONG_PRESS_DELAY = 150 // ms to trigger joystick
 const REPEAT_INITIAL_DELAY = 250 // ms before auto-repeat starts
@@ -38,7 +38,10 @@ function triggerHaptic(intensity: number = 10) {
 }
 
 // Calculate direction and distance from center point
-function getDirectionAndDistance(dx: number, dy: number): { direction: Direction; distance: number } {
+export function getDirectionAndDistance(
+  dx: number,
+  dy: number
+): { direction: Direction; distance: number } {
   const distance = Math.sqrt(dx * dx + dy * dy)
   if (distance < DEAD_ZONE) return { direction: null, distance: 0 }
 
@@ -55,7 +58,7 @@ function getDirectionAndDistance(dx: number, dy: number): { direction: Direction
 }
 
 // Calculate repeat interval based on distance (further = faster)
-function getRepeatInterval(distance: number): number {
+export function getRepeatInterval(distance: number): number {
   const maxDistance = JOYSTICK_RADIUS - 20
   const normalizedDistance = Math.min(distance / maxDistance, 1)
   // Interpolate: at distance 0 -> MAX interval (slow), at max distance -> MIN interval (fast)

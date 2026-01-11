@@ -273,7 +273,7 @@ function CommandIcon() {
   )
 }
 
-function formatRelativeTime(iso: string): string {
+export function formatRelativeTime(iso: string): string {
   const timestamp = Date.parse(iso)
   if (Number.isNaN(timestamp)) return ''
 

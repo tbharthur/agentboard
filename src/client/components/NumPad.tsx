@@ -40,6 +40,48 @@ const NUM_LAYOUT = [
   ['', '0', ''],
 ]
 
+export function getNumAtPoint(
+  clientX: number,
+  clientY: number,
+  padPosition: { x: number; y: number }
+): string | null {
+  // Calculate position relative to pad top-left
+  const padLeft = padPosition.x - PAD_WIDTH / 2
+  const padTop = padPosition.y - PAD_HEIGHT / 2
+
+  const relX = clientX - padLeft - PADDING
+  const relY = clientY - padTop - PADDING
+
+  // Check if within grid bounds
+  const gridWidth = 3 * CELL_WIDTH + 2 * GAP
+  const gridHeight = 4 * CELL_HEIGHT + 3 * GAP
+
+  if (relX < 0 || relX > gridWidth || relY < 0 || relY > gridHeight) {
+    return null
+  }
+
+  // Calculate column (0-2)
+  const col = Math.floor(relX / (CELL_WIDTH + GAP))
+  // Calculate row (0-3)
+  const row = Math.floor(relY / (CELL_HEIGHT + GAP))
+
+  // Clamp to valid range
+  if (col < 0 || col > 2 || row < 0 || row > 3) {
+    return null
+  }
+
+  // Check if actually inside a cell (not in the gap)
+  const cellStartX = col * (CELL_WIDTH + GAP)
+  const cellStartY = row * (CELL_HEIGHT + GAP)
+
+  if (relX > cellStartX + CELL_WIDTH || relY > cellStartY + CELL_HEIGHT) {
+    return null // In the gap
+  }
+
+  const num = NUM_LAYOUT[row]?.[col]
+  return num || null
+}
+
 export default function NumPad({
   onSendKey,
   disabled = false,
@@ -94,43 +136,11 @@ export default function NumPad({
   }, [disabled, isKeyboardVisible])
 
   // Calculate which number is under the touch point based on grid math
-  const getNumAtPoint = useCallback((clientX: number, clientY: number): string | null => {
-    // Calculate position relative to pad top-left
-    const padLeft = padPosition.x - PAD_WIDTH / 2
-    const padTop = padPosition.y - PAD_HEIGHT / 2
-
-    const relX = clientX - padLeft - PADDING
-    const relY = clientY - padTop - PADDING
-
-    // Check if within grid bounds
-    const gridWidth = 3 * CELL_WIDTH + 2 * GAP
-    const gridHeight = 4 * CELL_HEIGHT + 3 * GAP
-
-    if (relX < 0 || relX > gridWidth || relY < 0 || relY > gridHeight) {
-      return null
-    }
-
-    // Calculate column (0-2)
-    const col = Math.floor(relX / (CELL_WIDTH + GAP))
-    // Calculate row (0-3)
-    const row = Math.floor(relY / (CELL_HEIGHT + GAP))
-
-    // Clamp to valid range
-    if (col < 0 || col > 2 || row < 0 || row > 3) {
-      return null
-    }
-
-    // Check if actually inside a cell (not in the gap)
-    const cellStartX = col * (CELL_WIDTH + GAP)
-    const cellStartY = row * (CELL_HEIGHT + GAP)
-
-    if (relX > cellStartX + CELL_WIDTH || relY > cellStartY + CELL_HEIGHT) {
-      return null // In the gap
-    }
-
-    const num = NUM_LAYOUT[row]?.[col]
-    return num || null
-  }, [padPosition])
+  const getNumAtPointForPad = useCallback(
+    (clientX: number, clientY: number): string | null =>
+      getNumAtPoint(clientX, clientY, padPosition),
+    [padPosition]
+  )
 
   // Handle touch move - highlight number under finger
   const handleTouchMove = useCallback((e: TouchEvent) => {
@@ -140,7 +150,7 @@ export default function NumPad({
     if (!isOpen) return
 
     const touch = e.touches[0]
-    const num = getNumAtPoint(touch.clientX, touch.clientY)
+    const num = getNumAtPointForPad(touch.clientX, touch.clientY)
 
     if (num !== activeNum) {
       setActiveNum(num)
@@ -148,7 +158,7 @@ export default function NumPad({
         triggerHaptic(5)
       }
     }
-  }, [isOpen, activeNum, getNumAtPoint])
+  }, [isOpen, activeNum, getNumAtPointForPad])
 
   // Handle touch end - send the selected number
   const handleTouchEnd = useCallback((e: TouchEvent) => {
