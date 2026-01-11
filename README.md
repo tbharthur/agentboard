@@ -6,17 +6,15 @@ Made this because I got sick of using tmux kb shortcuts on my phone, and using B
 
 Run your desktop/server, then connect from your phone or laptop over Tailscale/LAN. Shared workspace across devices.
 
-| Desktop | Mobile |
-| :---: | :---: |
-| <img src="assets/desktop.png" alt="Desktop" width="500"/> | <img src="assets/mobile.jpeg" alt="Mobile" width="200"/><br/><img src="assets/mobile-controls.jpeg" alt="Mobile controls" width="200"/> |
-
-## Features
-
-- **iOS Safari support** - Full mobile experience with:
+- iOS Safari mobile experience with:
   - Paste support (including images)
   - Touch scrolling
   - Virtual arrow keys / d-pad
   - Quick keys toolbar (ctrl, esc, etc.)
+
+| Desktop | Mobile |
+| :---: | :---: |
+| <img src="assets/desktop.png" alt="Desktop" width="500"/> | <img src="assets/mobile.jpeg" alt="Mobile" width="200"/><br/><img src="assets/mobile-controls.jpeg" alt="Mobile controls" width="200"/> |
 
 ## Requirements
 
@@ -58,7 +56,3 @@ DISCOVER_PREFIXES=work,external
 ```
 
 `DISCOVER_PREFIXES` lets you see windows from other tmux sessions (view-only).
-
-## Notes
-
-Desktop and iOS Safari optimized.
