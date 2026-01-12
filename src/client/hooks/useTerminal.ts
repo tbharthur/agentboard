@@ -204,6 +204,8 @@ export function useTerminal({
     // Create tooltip element inside terminal (with xterm-hover class to prevent interference)
     // Guard for test environments where document.createElement may not be available
     let tooltip: HTMLDivElement | null = null
+    let tooltipUrl: HTMLDivElement | null = null
+    let tooltipHint: HTMLDivElement | null = null
     if (typeof document !== 'undefined' && document.createElement) {
       tooltip = document.createElement('div')
       tooltip.className = 'xterm-hover'
@@ -214,29 +216,34 @@ export function useTerminal({
         padding: 4px 8px;
         font-size: 12px;
         border-radius: 4px;
-        background: var(--color-surface);
-        border: 1px solid var(--color-border);
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
         box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        color: var(--color-primary);
+        color: var(--text-primary);
         pointer-events: none;
         max-width: 400px;
         word-break: break-all;
       `
+      tooltipUrl = document.createElement('div')
+      tooltip.appendChild(tooltipUrl)
+
+      tooltipHint = document.createElement('div')
+      tooltipHint.style.color = 'var(--text-muted)'
+      tooltipHint.style.marginTop = '2px'
+      tooltipHint.style.fontSize = '11px'
+      tooltip.appendChild(tooltipHint)
+
       terminal.element?.appendChild(tooltip)
       linkTooltipRef.current = tooltip
     }
 
     const showTooltip = (event: MouseEvent, text: string) => {
-      if (!terminal.element || !tooltip) return
+      if (!terminal.element || !tooltip || !tooltipUrl || !tooltipHint) return
       const rect = terminal.element.getBoundingClientRect()
       // Truncate long URLs
       const displayUrl = text.length > 60 ? text.slice(0, 57) + '...' : text
-      tooltip.innerHTML = `
-        <div>${displayUrl}</div>
-        <div style="color: var(--color-muted); margin-top: 2px; font-size: 11px;">
-          ${isMac ? '⌘' : 'Ctrl'}+click to open
-        </div>
-      `
+      tooltipUrl.textContent = displayUrl
+      tooltipHint.textContent = `${isMac ? '⌘' : 'Ctrl'}+click to open`
       tooltip.style.left = `${event.clientX - rect.left + 10}px`
       tooltip.style.top = `${event.clientY - rect.top + 10}px`
       tooltip.style.display = 'block'

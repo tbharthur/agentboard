@@ -213,10 +213,6 @@ body {
   padding: 8px;
 }
 
-.ios-native-term-selection .xterm .xterm-accessibility:not(.debug) {
-  pointer-events: auto;
-}
-
 .ios-native-term-selection .xterm .xterm-accessibility-tree {
   -webkit-user-select: text;
   user-select: text;
@@ -242,9 +238,19 @@ body {
   opacity: 0;
   width: 1px;
   height: 1px;
-  pointer-events: auto;
+  pointer-events: none;
   -webkit-user-select: text;
   user-select: text;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .ios-native-term-selection .xterm .xterm-accessibility:not(.debug) {
+    pointer-events: auto;
+  }
+
+  .ios-native-term-selection .xterm-helper-textarea {
+    pointer-events: auto;
+  }
 }
 
 .xterm .xterm-viewport {
