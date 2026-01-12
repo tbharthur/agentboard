@@ -217,7 +217,7 @@ function SessionRow({
     >
       <div className={`status-bar ${statusBarClass[session.status]}`} />
 
-      <div className="flex flex-col gap-0.5 pl-2">
+      <div className="flex flex-col gap-0.5 pl-2.5">
         {/* Line 1: Icon + Name + Time/Hand */}
         <div className="flex items-center gap-2">
           <AgentIcon session={session} className="h-3.5 w-3.5 shrink-0 text-muted" />
@@ -247,7 +247,7 @@ function SessionRow({
         {/* Line 2: Directory */}
         {directoryLeaf && (
           <span
-            className="truncate pl-[22px] text-xs text-muted"
+            className="truncate pl-[1.375rem] text-xs text-muted"
             title={session.projectPath}
           >
             {directoryLeaf}
