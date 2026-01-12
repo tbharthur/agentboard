@@ -512,18 +512,22 @@ export function useTerminal({
     if (sessionId && sessionId !== prevAttached) {
       // Reset terminal before attaching
       terminal.reset()
-      // Send attach message
-      sendMessage({ type: 'terminal-attach', sessionId })
+
+      // Fit terminal first to get accurate dimensions
+      const fitAddon = fitAddonRef.current
+      if (fitAddon) {
+        fitAddon.fit()
+      }
+
+      // Send attach message with current dimensions so server spawns at correct size
+      sendMessage({
+        type: 'terminal-attach',
+        sessionId,
+        cols: terminal.cols,
+        rows: terminal.rows,
+      })
       // Mark as attached
       attachedSessionRef.current = sessionId
-
-      // Fit and resize after the session switch so tmux matches current viewport
-      if (fitTimer.current) {
-        window.clearTimeout(fitTimer.current)
-      }
-      fitTimer.current = window.setTimeout(() => {
-        fitAndResize()
-      }, 50)
 
       // Scroll to bottom and focus after content loads
       if (scrollTimer.current) {

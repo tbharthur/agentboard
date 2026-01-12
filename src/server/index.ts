@@ -251,7 +251,7 @@ function handleMessage(
       handleRename(message.sessionId, message.newName, ws)
       return
     case 'terminal-attach':
-      attachTerminal(ws, message.sessionId)
+      attachTerminal(ws, message.sessionId, message.cols, message.rows)
       return
     case 'terminal-detach':
       detachTerminal(ws, message.sessionId)
@@ -315,7 +315,12 @@ function handleRename(
   }
 }
 
-function attachTerminal(ws: ServerWebSocket<WSData>, sessionId: string) {
+function attachTerminal(
+  ws: ServerWebSocket<WSData>,
+  sessionId: string,
+  cols?: number,
+  rows?: number
+) {
   const session = registry.get(sessionId)
   if (!session) {
     send(ws, { type: 'error', message: 'Session not found' })
@@ -328,14 +333,18 @@ function attachTerminal(ws: ServerWebSocket<WSData>, sessionId: string) {
     ws.data.terminals.delete(existingId)
   }
 
-  const terminal = new TerminalProxy(session.tmuxWindow, {
-    onData: (data) => {
-      send(ws, { type: 'terminal-output', sessionId, data })
+  const terminal = new TerminalProxy(
+    session.tmuxWindow,
+    {
+      onData: (data) => {
+        send(ws, { type: 'terminal-output', sessionId, data })
+      },
+      onExit: () => {
+        detachTerminal(ws, sessionId)
+      },
     },
-    onExit: () => {
-      detachTerminal(ws, sessionId)
-    },
-  })
+    { cols, rows }
+  )
 
   terminal.start()
   ws.data.terminals.set(sessionId, terminal)

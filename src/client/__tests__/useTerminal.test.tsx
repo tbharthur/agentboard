@@ -421,6 +421,8 @@ describe('useTerminal', () => {
     expect(sendCalls).toContainEqual({
       type: 'terminal-attach',
       sessionId: 'session-2',
+      cols: 80,
+      rows: 24,
     })
 
     act(() => {

@@ -3,24 +3,30 @@ interface TerminalCallbacks {
   onExit?: () => void
 }
 
-type SpawnFn = (
-  args: string[],
-  options: Parameters<typeof Bun.spawn>[1]
-) => ReturnType<typeof Bun.spawn>
+interface TerminalOptions {
+  cols?: number
+  rows?: number
+  spawn?: (
+    args: string[],
+    options: Parameters<typeof Bun.spawn>[1]
+  ) => ReturnType<typeof Bun.spawn>
+}
 
 export class TerminalProxy {
   private process: ReturnType<typeof Bun.spawn> | null = null
   private decoder = new TextDecoder()
-  private cols = 80
-  private rows = 24
-  private spawn: SpawnFn
+  private cols: number
+  private rows: number
+  private spawn: NonNullable<TerminalOptions['spawn']>
 
   constructor(
     private tmuxWindow: string,
     private callbacks: TerminalCallbacks,
-    spawn?: SpawnFn
+    options?: TerminalOptions
   ) {
-    this.spawn = spawn ?? Bun.spawn
+    this.cols = options?.cols ?? 80
+    this.rows = options?.rows ?? 24
+    this.spawn = options?.spawn ?? Bun.spawn
   }
 
   start(): void {

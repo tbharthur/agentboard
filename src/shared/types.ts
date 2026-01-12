@@ -24,7 +24,7 @@ export type ServerMessage =
   | { type: 'error'; message: string }
 
 export type ClientMessage =
-  | { type: 'terminal-attach'; sessionId: string }
+  | { type: 'terminal-attach'; sessionId: string; cols?: number; rows?: number }
   | { type: 'terminal-detach'; sessionId: string }
   | { type: 'terminal-input'; sessionId: string; data: string }
   | { type: 'terminal-resize'; sessionId: string; cols: number; rows: number }

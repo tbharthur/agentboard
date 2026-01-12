@@ -58,7 +58,7 @@ describe('TerminalProxy', () => {
       {
         onData: (data) => received.push(data),
       },
-      spawnStub.spawn
+      { spawn: spawnStub.spawn }
     )
 
     proxy.start()
@@ -92,7 +92,7 @@ describe('TerminalProxy', () => {
           exitCount += 1
         },
       },
-      spawnStub.spawn
+      { spawn: spawnStub.spawn }
     )
 
     proxy.start()
@@ -130,7 +130,7 @@ describe('TerminalProxy', () => {
     const proxy = new TerminalProxy(
       'agentboard:3',
       { onData: () => {} },
-      spawn
+      { spawn }
     )
 
     proxy.start()
@@ -162,7 +162,7 @@ describe('TerminalProxy', () => {
     const proxy = new TerminalProxy(
       'agentboard:4',
       { onData: (data) => received.push(data) },
-      spawn
+      { spawn }
     )
 
     proxy.start()
