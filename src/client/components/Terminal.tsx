@@ -6,7 +6,8 @@ import { useThemeStore, terminalThemes } from '../stores/themeStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { isIOSDevice, getEffectiveModifier, getModifierDisplay } from '../utils/device'
 import TerminalControls from './TerminalControls'
-import { PlusIcon, XCloseIcon, DotsVerticalIcon } from '@untitledui-icons/react/line'
+import SessionDrawer from './SessionDrawer'
+import { PlusIcon, XCloseIcon, DotsVerticalIcon, Menu01Icon } from '@untitledui-icons/react/line'
 
 interface TerminalProps {
   session: Session | null
@@ -20,6 +21,8 @@ interface TerminalProps {
   onKillSession: (sessionId: string) => void
   onRenameSession: (sessionId: string, newName: string) => void
   onOpenSettings: () => void
+  loading?: boolean
+  error?: string | null
 }
 
 const statusText: Record<Session['status'], string> = {
@@ -62,13 +65,16 @@ export default function Terminal({
   connectionStatus,
   sendMessage,
   subscribe,
-  onClose,
+  onClose: _onClose,
   onSelectSession,
   onNewSession,
   onKillSession,
   onRenameSession,
   onOpenSettings,
+  loading = false,
+  error = null,
 }: TerminalProps) {
+  void _onClose // Keep for interface compatibility
   const theme = useThemeStore((state) => state.theme)
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
   const terminalTheme = terminalThemes[theme]
@@ -76,10 +82,15 @@ export default function Terminal({
   const shortcutModifier = useSettingsStore((state) => state.shortcutModifier)
   const modDisplay = getModifierDisplay(getEffectiveModifier(shortcutModifier))
   const isiOS = isIOSDevice()
+  const [isMobileLayout, setIsMobileLayout] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false
+    return window.matchMedia('(max-width: 767px)').matches
+  })
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isSelectingText, setIsSelectingText] = useState(false)
   const [showEndConfirm, setShowEndConfirm] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const moreMenuRef = useRef<HTMLDivElement>(null)
@@ -115,6 +126,25 @@ export default function Terminal({
   const scrollToBottom = useCallback(() => {
     terminalRef.current?.scrollToBottom()
   }, [terminalRef])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mediaQuery = window.matchMedia('(max-width: 767px)')
+    const handleChange = () => setIsMobileLayout(mediaQuery.matches)
+    handleChange()
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleChange)
+      return () => mediaQuery.removeEventListener('change', handleChange)
+    }
+    mediaQuery.addListener(handleChange)
+    return () => mediaQuery.removeListener(handleChange)
+  }, [])
+
+  useEffect(() => {
+    if (!isMobileLayout && isDrawerOpen) {
+      setIsDrawerOpen(false)
+    }
+  }, [isDrawerOpen, isMobileLayout])
 
   // Close more menu when clicking outside
   useEffect(() => {
@@ -176,16 +206,13 @@ export default function Terminal({
   }
 
   useEffect(() => {
-    if (!isiOS || !session) {
+    if (!isiOS || !session || !isMobileLayout) {
       setIsSelectingText(false)
       return
     }
 
     const container = containerRef.current
     if (!container) return
-
-    const isMobile = window.matchMedia('(max-width: 767px)').matches
-    if (!isMobile) return
 
     const isSelectionInside = (sel: Selection) => {
       const a11yTree = container.querySelector('.xterm-accessibility-tree')
@@ -270,7 +297,7 @@ export default function Terminal({
       document.removeEventListener('touchend', onTouchEnd)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- use session?.id to avoid re-running on session data changes
-  }, [containerRef, isiOS, session?.id])
+  }, [containerRef, isiOS, isMobileLayout, session?.id])
 
   useEffect(() => {
     if (!isiOS) return
@@ -330,8 +357,7 @@ export default function Terminal({
     if (!container || !session?.id) return
 
     // Check if mobile
-    const isMobile = window.matchMedia('(max-width: 767px)').matches
-    if (!isMobile) return
+    if (!isMobileLayout) return
     const TAP_MOVE_THRESHOLD = 10 // pixels - if moved more, it's not a tap
 
     let touchStartPos = { x: 0, y: 0 }
@@ -461,7 +487,7 @@ export default function Terminal({
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- use session?.id and refs to avoid re-running on unrelated changes
-  }, [session?.id, containerRef, terminalRef, isiOS])
+  }, [session?.id, containerRef, terminalRef, isiOS, isMobileLayout])
 
   const handleSendKey = useCallback(
     (key: string) => {
@@ -488,73 +514,80 @@ export default function Terminal({
     return textarea ? document.activeElement === textarea : false
   }, [containerRef])
 
-  const hasSession = Boolean(session)
-
   return (
     <section
-      className={`flex flex-1 flex-col bg-base ${hasSession ? 'terminal-mobile-overlay md:relative md:inset-auto' : 'hidden md:flex'} ${isiOS ? 'ios-native-term-selection' : ''}`}
+      className={`flex flex-1 flex-col bg-base terminal-mobile-overlay md:relative md:inset-auto ${isiOS ? 'ios-native-term-selection' : ''}`}
       data-testid="terminal-panel"
     >
-      {/* Terminal header - only show when session selected */}
-      {session && (
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-elevated px-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              onClick={onClose}
-              className="btn py-1 text-[11px] md:hidden shrink-0"
-            >
-              Back
-            </button>
-            {isRenaming ? (
-              <input
-                ref={renameInputRef}
-                type="text"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onBlur={handleRenameSubmit}
-                onKeyDown={handleRenameKeyDown}
-                className="w-full max-w-[200px] rounded border border-border bg-surface px-2 py-0.5 text-sm font-medium text-primary outline-none focus:border-accent"
-              />
-            ) : (
-              <span className="text-sm font-medium text-primary truncate">
-                {session.name}
+      {/* Mobile header - always show on mobile for drawer access */}
+      <div className={`flex h-10 shrink-0 items-center justify-between border-b border-border bg-elevated px-3 ${session ? '' : 'md:hidden'}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => setIsDrawerOpen(true)}
+            className="flex h-7 w-7 items-center justify-center rounded bg-surface border border-border text-secondary hover:bg-hover hover:text-primary active:scale-95 transition-all md:hidden shrink-0"
+            aria-label="Open session menu"
+          >
+            <Menu01Icon width={16} height={16} />
+          </button>
+          {session ? (
+            <>
+              {isRenaming ? (
+                <input
+                  ref={renameInputRef}
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onBlur={handleRenameSubmit}
+                  onKeyDown={handleRenameKeyDown}
+                  className="w-full max-w-[200px] rounded border border-border bg-surface px-2 py-0.5 text-sm font-medium text-primary outline-none focus:border-accent"
+                />
+              ) : (
+                <span className="text-sm font-medium text-primary truncate">
+                  {session.name}
+                </span>
+              )}
+              <span className={`text-xs shrink-0 ${statusClass[session.status]}`}>
+                {statusText[session.status]}
               </span>
-            )}
-            <span className={`text-xs shrink-0 ${statusClass[session.status]}`}>
-              {statusText[session.status]}
+            </>
+          ) : (
+            <span className="text-sm font-medium text-primary md:hidden">
+              Sessions
             </span>
-          </div>
+          )}
+        </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            {connectionStatus !== 'connected' && (
-              <span className="text-xs text-approval">
-                {connectionStatus}
-              </span>
-            )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {connectionStatus !== 'connected' && (
+            <span className="text-xs text-approval">
+              {connectionStatus}
+            </span>
+          )}
 
-            {/* New session button - mobile only (desktop has it in header) */}
+          {/* New session button - mobile only (desktop has it in header) */}
+          <button
+            onClick={onNewSession}
+            className="flex h-7 w-7 items-center justify-center rounded bg-accent text-white hover:bg-accent/90 active:scale-95 transition-all md:hidden"
+            title={`New session (${modDisplay}N)`}
+            aria-label="New session"
+          >
+            <PlusIcon width={16} height={16} />
+          </button>
+
+          {/* Kill session button - only for managed sessions */}
+          {session?.source === 'managed' && (
             <button
-              onClick={onNewSession}
-              className="flex h-7 w-7 items-center justify-center rounded bg-accent text-white hover:bg-accent/90 active:scale-95 transition-all md:hidden"
-              title={`New session (${modDisplay}N)`}
-              aria-label="New session"
+              onClick={() => setShowEndConfirm(true)}
+              className="flex h-7 w-7 items-center justify-center rounded bg-danger/10 border border-danger/30 text-danger hover:bg-danger/20 active:scale-95 transition-all"
+              title={`Kill session (${modDisplay}X)`}
+              aria-label="Kill session"
             >
-              <PlusIcon width={16} height={16} />
+              <XCloseIcon width={16} height={16} />
             </button>
+          )}
 
-            {/* Kill session button - only for managed sessions */}
-            {session.source === 'managed' && (
-              <button
-                onClick={() => setShowEndConfirm(true)}
-                className="flex h-7 w-7 items-center justify-center rounded bg-danger/10 border border-danger/30 text-danger hover:bg-danger/20 active:scale-95 transition-all"
-                title={`Kill session (${modDisplay}X)`}
-                aria-label="Kill session"
-              >
-                <XCloseIcon width={16} height={16} />
-              </button>
-            )}
-
-            {/* More menu */}
+          {/* More menu - only show when session selected */}
+          {session && (
             <div className="relative" ref={moreMenuRef}>
               <button
                 onClick={() => setShowMoreMenu(!showMoreMenu)}
@@ -614,9 +647,9 @@ export default function Terminal({
                 </div>
               )}
             </div>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Mobile session switcher - top of terminal */}
       {session && sessions.length > 1 && (
@@ -702,6 +735,21 @@ export default function Terminal({
           hideSessionSwitcher
           onRefocus={handleRefocus}
           isKeyboardVisible={isKeyboardVisible}
+        />
+      )}
+
+      {/* Mobile session drawer */}
+      {isMobileLayout && (
+        <SessionDrawer
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+          sessions={sessions}
+          selectedSessionId={session?.id ?? null}
+          onSelect={onSelectSession}
+          onRename={onRenameSession}
+          onNewSession={onNewSession}
+          loading={loading}
+          error={error}
         />
       )}
 

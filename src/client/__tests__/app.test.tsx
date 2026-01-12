@@ -242,8 +242,10 @@ describe('App', () => {
       subscribeListener?.({ type: 'error', message: 'Boom' })
     })
 
-    const sessionList = renderer.root.findByType(SessionList)
-    expect(sessionList.props.error).toBe('Boom')
+    // Find the desktop sidebar SessionList (first one) - drawer also has one
+    const sessionLists = renderer.root.findAllByType(SessionList)
+    expect(sessionLists.length).toBeGreaterThan(0)
+    expect(sessionLists[0].props.error).toBe('Boom')
 
   })
 

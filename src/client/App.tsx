@@ -184,8 +184,8 @@ export default function App() {
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Left column: header + sidebar - hidden on mobile when session selected */}
-      <div className={`flex h-full w-full flex-col md:w-60 lg:w-72 md:shrink-0 ${selectedSession ? 'hidden md:flex' : ''}`}>
+      {/* Left column: header + sidebar - always hidden on mobile (drawer handles it) */}
+      <div className="hidden h-full w-60 flex-col md:flex lg:w-72 md:shrink-0">
         <Header
           connectionStatus={connectionStatus}
           onNewSession={handleNewSession}
@@ -214,6 +214,8 @@ export default function App() {
         onKillSession={handleKillSession}
         onRenameSession={handleRenameSession}
         onOpenSettings={handleOpenSettings}
+        loading={!hasLoaded}
+        error={connectionError || serverError}
       />
 
       <NewSessionModal
