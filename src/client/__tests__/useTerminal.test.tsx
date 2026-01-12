@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, mock } from 'bun:test'
 import TestRenderer, { act } from 'react-test-renderer'
 import type { ServerMessage } from '@shared/types'
-import type { ITheme } from 'xterm'
+import type { ITheme } from '@xterm/xterm'
 
 const globalAny = globalThis as typeof globalThis & {
   window?: Window
@@ -126,10 +126,18 @@ class WebglAddonMock {
 
 class ClipboardAddonMock {}
 
-mock.module('xterm', () => ({ Terminal: TerminalMock }))
-mock.module('xterm-addon-fit', () => ({ FitAddon: FitAddonMock }))
+class SearchAddonMock {}
+class SerializeAddonMock {}
+class ProgressAddonMock {}
+
+mock.module('@xterm/xterm', () => ({ Terminal: TerminalMock }))
+mock.module('@xterm/addon-fit', () => ({ FitAddon: FitAddonMock }))
 mock.module('@xterm/addon-clipboard', () => ({ ClipboardAddon: ClipboardAddonMock }))
-mock.module('xterm-addon-webgl', () => ({ WebglAddon: WebglAddonMock }))
+mock.module('@xterm/addon-webgl', () => ({ WebglAddon: WebglAddonMock }))
+mock.module('@xterm/addon-search', () => ({ SearchAddon: SearchAddonMock }))
+mock.module('@xterm/addon-serialize', () => ({ SerializeAddon: SerializeAddonMock }))
+mock.module('@xterm/addon-progress', () => ({ ProgressAddon: ProgressAddonMock }))
+mock.module('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
 
 const { forceTextPresentation, useTerminal } = await import('../hooks/useTerminal')
 

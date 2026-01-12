@@ -686,6 +686,7 @@ export default function Terminal({
             </svg>
           </button>
         )}
+
       </div>
 
       {/* Mobile control strip */}

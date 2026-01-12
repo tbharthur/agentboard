@@ -30,7 +30,7 @@ function createStorage(): Storage {
 
 globalAny.localStorage = createStorage()
 
-mock.module('xterm', () => ({
+mock.module('@xterm/xterm', () => ({
   Terminal: class {
     cols = 80
     rows = 24
@@ -50,14 +50,26 @@ mock.module('xterm', () => ({
     dispose() {}
   },
 }))
-mock.module('xterm-addon-fit', () => ({
+mock.module('@xterm/addon-fit', () => ({
   FitAddon: class { fit() {} },
 }))
 mock.module('@xterm/addon-clipboard', () => ({
   ClipboardAddon: class {},
 }))
-mock.module('xterm-addon-webgl', () => ({
+mock.module('@xterm/addon-webgl', () => ({
   WebglAddon: class { dispose() {} },
+}))
+mock.module('@xterm/addon-search', () => ({
+  SearchAddon: class {},
+}))
+mock.module('@xterm/addon-serialize', () => ({
+  SerializeAddon: class {},
+}))
+mock.module('@xterm/addon-progress', () => ({
+  ProgressAddon: class {},
+}))
+mock.module('@xterm/addon-web-links', () => ({
+  WebLinksAddon: class {},
 }))
 
 const [{ default: App }, { default: Header }, { default: SessionList }, { default: Terminal }, { default: TerminalControls }, { default: NewSessionModal }, { default: SettingsModal }, { default: DPad }, { default: NumPad }] =

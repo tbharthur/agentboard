@@ -1,9 +1,18 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { Terminal } from 'xterm'
-import { FitAddon } from 'xterm-addon-fit'
-import { WebglAddon } from 'xterm-addon-webgl'
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import { WebglAddon } from '@xterm/addon-webgl'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ClipboardAddon, type ClipboardSelectionType, type IClipboardProvider } from '@xterm/addon-clipboard'
+import { SearchAddon } from '@xterm/addon-search'
+import { SerializeAddon } from '@xterm/addon-serialize'
+import { ProgressAddon } from '@xterm/addon-progress'
 import type { ServerMessage } from '@shared/types'
+
+// URL regex that matches standard URLs and IP:port patterns
+const URL_REGEX = /https?:\/\/[^\s"'<>]+|\b(?:localhost|\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}(?:\/[^\s"'<>]*)?\b/
+
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)
 
 /**
  * Custom clipboard provider that prevents empty writes (matching Ghostty's behavior).
@@ -30,7 +39,7 @@ class SafeClipboardProvider implements IClipboardProvider {
     }
   }
 }
-import type { ITheme } from 'xterm'
+import type { ITheme } from '@xterm/xterm'
 import { isIOSDevice } from '../utils/device'
 
 // Text presentation selector - forces text rendering instead of emoji
@@ -81,6 +90,11 @@ export function useTerminal({
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const webglAddonRef = useRef<WebglAddon | null>(null)
+  const webLinksAddonRef = useRef<WebLinksAddon | null>(null)
+  const linkTooltipRef = useRef<HTMLDivElement | null>(null)
+  const searchAddonRef = useRef<SearchAddon | null>(null)
+  const serializeAddonRef = useRef<SerializeAddon | null>(null)
+  const progressAddonRef = useRef<ProgressAddon | null>(null)
   const resizeTimer = useRef<number | null>(null)
   const scrollTimer = useRef<number | null>(null)
   const fitTimer = useRef<number | null>(null)
@@ -159,6 +173,21 @@ export function useTerminal({
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(new ClipboardAddon(undefined, new SafeClipboardProvider()))
 
+    // Load search addon for terminal buffer search
+    const searchAddon = new SearchAddon()
+    terminal.loadAddon(searchAddon)
+    searchAddonRef.current = searchAddon
+
+    // Load serialize addon for exporting terminal state
+    const serializeAddon = new SerializeAddon()
+    terminal.loadAddon(serializeAddon)
+    serializeAddonRef.current = serializeAddon
+
+    // Load progress addon for OSC 9;4 progress sequences
+    const progressAddon = new ProgressAddon()
+    terminal.loadAddon(progressAddon)
+    progressAddonRef.current = progressAddon
+
     if (useWebGLRef.current) {
       try {
         const webglAddon = new WebglAddon()
@@ -171,6 +200,77 @@ export function useTerminal({
 
     terminal.open(container)
     fitAddon.fit()
+
+    // Create tooltip element inside terminal (with xterm-hover class to prevent interference)
+    // Guard for test environments where document.createElement may not be available
+    let tooltip: HTMLDivElement | null = null
+    if (typeof document !== 'undefined' && document.createElement) {
+      tooltip = document.createElement('div')
+      tooltip.className = 'xterm-hover'
+      tooltip.style.cssText = `
+        position: absolute;
+        display: none;
+        z-index: 20;
+        padding: 4px 8px;
+        font-size: 12px;
+        border-radius: 4px;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        color: var(--color-primary);
+        pointer-events: none;
+        max-width: 400px;
+        word-break: break-all;
+      `
+      terminal.element?.appendChild(tooltip)
+      linkTooltipRef.current = tooltip
+    }
+
+    const showTooltip = (event: MouseEvent, text: string) => {
+      if (!terminal.element || !tooltip) return
+      const rect = terminal.element.getBoundingClientRect()
+      // Truncate long URLs
+      const displayUrl = text.length > 60 ? text.slice(0, 57) + '...' : text
+      tooltip.innerHTML = `
+        <div>${displayUrl}</div>
+        <div style="color: var(--color-muted); margin-top: 2px; font-size: 11px;">
+          ${isMac ? '⌘' : 'Ctrl'}+click to open
+        </div>
+      `
+      tooltip.style.left = `${event.clientX - rect.left + 10}px`
+      tooltip.style.top = `${event.clientY - rect.top + 10}px`
+      tooltip.style.display = 'block'
+    }
+
+    const hideTooltip = () => {
+      if (tooltip) tooltip.style.display = 'none'
+    }
+
+    // Link handler with hover/leave callbacks - used for both OSC 8 and WebLinksAddon
+    const linkHandler = {
+      activate: (event: MouseEvent, text: string) => {
+        if (event.metaKey || event.ctrlKey) {
+          window.open(text, '_blank', 'noopener')
+        }
+      },
+      hover: (event: MouseEvent, text: string) => showTooltip(event, text),
+      leave: () => hideTooltip(),
+    }
+
+    // Set linkHandler for OSC 8 hyperlinks
+    terminal.options.linkHandler = linkHandler
+
+    // WebLinksAddon for auto-detected URLs (pass linkHandler for hover/leave)
+    const webLinksAddon = new WebLinksAddon(
+      (event, uri) => linkHandler.activate(event, uri),
+      {
+        urlRegex: URL_REGEX,
+        hover: (event, text) => linkHandler.hover(event, text),
+        leave: () => linkHandler.leave(),
+      }
+    )
+    terminal.loadAddon(webLinksAddon)
+    webLinksAddonRef.current = webLinksAddon
 
     // Handle paste events - listen on both terminal element and the hidden textarea
     const handlePaste = (e: Event) => {
@@ -247,6 +347,19 @@ export function useTerminal({
     return () => {
       terminal.element?.removeEventListener('paste', handlePaste)
       textarea?.removeEventListener('paste', handlePaste)
+      // Remove tooltip element
+      if (linkTooltipRef.current) {
+        linkTooltipRef.current.remove()
+        linkTooltipRef.current = null
+      }
+      if (webLinksAddonRef.current) {
+        try {
+          webLinksAddonRef.current.dispose()
+        } catch {
+          // Ignore
+        }
+        webLinksAddonRef.current = null
+      }
       if (webglAddonRef.current) {
         try {
           webglAddonRef.current.dispose()
@@ -265,6 +378,9 @@ export function useTerminal({
       }
       terminalRef.current = null
       fitAddonRef.current = null
+      searchAddonRef.current = null
+      serializeAddonRef.current = null
+      progressAddonRef.current = null
       if (fitTimer.current) {
         window.clearTimeout(fitTimer.current)
       }
@@ -439,5 +555,11 @@ export function useTerminal({
     }
   }, [])
 
-  return { containerRef, terminalRef }
+  return {
+    containerRef,
+    terminalRef,
+    searchAddonRef,
+    serializeAddonRef,
+    progressAddonRef,
+  }
 }

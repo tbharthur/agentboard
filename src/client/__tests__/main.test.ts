@@ -37,11 +37,15 @@ mock.module('react-dom/client', () => ({
     },
   }),
 }))
-mock.module('xterm', () => ({ Terminal: class {} }))
-mock.module('xterm-addon-fit', () => ({ FitAddon: class {} }))
+mock.module('@xterm/xterm', () => ({ Terminal: class {} }))
+mock.module('@xterm/addon-fit', () => ({ FitAddon: class {} }))
 mock.module('@xterm/addon-clipboard', () => ({ ClipboardAddon: class {} }))
-mock.module('xterm-addon-webgl', () => ({ WebglAddon: class {} }))
-mock.module('xterm/css/xterm.css', () => ({}))
+mock.module('@xterm/addon-webgl', () => ({ WebglAddon: class {} }))
+mock.module('@xterm/addon-search', () => ({ SearchAddon: class {} }))
+mock.module('@xterm/addon-serialize', () => ({ SerializeAddon: class {} }))
+mock.module('@xterm/addon-progress', () => ({ ProgressAddon: class {} }))
+mock.module('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
+mock.module('@xterm/xterm/css/xterm.css', () => ({}))
 
 const stylesPath = new URL('../styles/index.css', import.meta.url).pathname
 mock.module(stylesPath, () => ({}))

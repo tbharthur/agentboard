@@ -48,10 +48,14 @@ class TerminalMock {
   refresh() {}
 }
 
-mock.module('xterm', () => ({ Terminal: TerminalMock }))
-mock.module('xterm-addon-fit', () => ({ FitAddon: class { fit() {} } }))
+mock.module('@xterm/xterm', () => ({ Terminal: TerminalMock }))
+mock.module('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }))
 mock.module('@xterm/addon-clipboard', () => ({ ClipboardAddon: class {} }))
-mock.module('xterm-addon-webgl', () => ({ WebglAddon: class { dispose() {} } }))
+mock.module('@xterm/addon-webgl', () => ({ WebglAddon: class { dispose() {} } }))
+mock.module('@xterm/addon-search', () => ({ SearchAddon: class {} }))
+mock.module('@xterm/addon-serialize', () => ({ SerializeAddon: class {} }))
+mock.module('@xterm/addon-progress', () => ({ ProgressAddon: class {} }))
+mock.module('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
 
 const actualWebSocket = await import('../hooks/useWebSocket')
 

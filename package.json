@@ -22,6 +22,13 @@
     "@base-ui-components/react": "^1.0.0-rc.0",
     "@untitledui-icons/react": "^1.0.3",
     "@xterm/addon-clipboard": "^0.2.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-progress": "^0.1.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
     "clsx": "^2.1.1",
     "hono": "^4.6.10",
     "motion": "^12.25.0",
@@ -29,9 +36,6 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^3.4.0",
-    "xterm": "^5.3.0",
-    "xterm-addon-fit": "^0.8.0",
-    "xterm-addon-webgl": "^0.16.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
