@@ -383,11 +383,6 @@ export function useTerminal({
       }
     })
 
-    // Track scroll position changes
-    terminal.onScroll(() => {
-      checkScrollPosition()
-    })
-
     // Forward wheel events to tmux for scrollback (like Blink terminal)
     // This enters tmux copy-mode instead of using xterm.js local scrollback
     terminal.attachCustomWheelEventHandler((ev) => {

@@ -25,7 +25,7 @@ class TerminalMock {
   buffer = { active: { viewportY: 0, baseY: 0 } }
   element: HTMLElement | null = null
   scrollCalls = 0
-  private scrollHandler?: () => void
+  private wheelHandler?: (event: WheelEvent) => boolean
 
   constructor() {
     TerminalMock.instances.push(this)
@@ -41,15 +41,12 @@ class TerminalMock {
 
   onData() {}
 
-  onScroll(handler: () => void) {
-    this.scrollHandler = handler
-  }
-
   attachCustomKeyEventHandler() {
     return true
   }
 
-  attachCustomWheelEventHandler() {
+  attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) {
+    this.wheelHandler = handler
     return true
   }
 
@@ -73,8 +70,8 @@ class TerminalMock {
 
   refresh() {}
 
-  emitScroll() {
-    this.scrollHandler?.()
+  emitWheel(event: WheelEvent) {
+    return this.wheelHandler?.(event)
   }
 }
 
@@ -259,11 +256,8 @@ describe('Terminal', () => {
       throw new Error('Expected terminal instance')
     }
 
-    terminalInstance.buffer.active.baseY = 10
-    terminalInstance.buffer.active.viewportY = 0
-
     act(() => {
-      terminalInstance.emitScroll()
+      terminalInstance.emitWheel({ deltaY: 30 } as WheelEvent)
     })
 
     const scrollButton = renderer.root.findAllByType('button').find(
