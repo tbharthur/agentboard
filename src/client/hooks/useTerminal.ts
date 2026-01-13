@@ -109,6 +109,7 @@ interface UseTerminalOptions {
   subscribe: (listener: (message: ServerMessage) => void) => () => void
   theme: ITheme
   fontSize: number
+  lineHeight: number
   useWebGL: boolean
   onScrollChange?: (isAtBottom: boolean) => void
 }
@@ -120,6 +121,7 @@ export function useTerminal({
   subscribe,
   theme,
   fontSize,
+  lineHeight,
   useWebGL,
   onScrollChange,
 }: UseTerminalOptions) {
@@ -217,8 +219,8 @@ export function useTerminal({
 
     // Calculate lineHeight that produces integer cell height for any fontSize
     // This keeps cell sizing stable across fractional line-height rendering
-    const calcLineHeight = (size: number) => Math.round(size * 1.4) / size
-    const computedLineHeight = calcLineHeight(fontSize)
+    const calcLineHeight = (size: number, lh: number) => Math.round(size * lh) / size
+    const computedLineHeight = calcLineHeight(fontSize, lineHeight)
 
     const terminal = new Terminal({
       fontFamily: '"JetBrains Mono", "SF Mono", "Fira Code", monospace',
@@ -496,14 +498,14 @@ export function useTerminal({
     }
   }, [theme])
 
-  // Update font size (and lineHeight to maintain integer cell height)
+  // Update font size and lineHeight (maintaining integer cell height)
   useEffect(() => {
     const terminal = terminalRef.current
     const fitAddon = fitAddonRef.current
     if (terminal && fitAddon) {
       terminal.options.fontSize = fontSize
       // Recalculate lineHeight for integer cell height
-      terminal.options.lineHeight = Math.round(fontSize * 1.4) / fontSize
+      terminal.options.lineHeight = Math.round(fontSize * lineHeight) / fontSize
       fitAddon.fit()
       // Notify server of new dimensions
       const attached = attachedSessionRef.current
@@ -516,7 +518,7 @@ export function useTerminal({
         })
       }
     }
-  }, [fontSize])
+  }, [fontSize, lineHeight])
 
   // Handle WebGL toggle at runtime
   useEffect(() => {

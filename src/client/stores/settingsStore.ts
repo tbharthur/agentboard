@@ -86,6 +86,8 @@ interface SettingsState {
   setSessionSortDirection: (direction: SessionSortDirection) => void
   useWebGL: boolean
   setUseWebGL: (enabled: boolean) => void
+  lineHeight: number
+  setLineHeight: (height: number) => void
   shortcutModifier: ShortcutModifier | 'auto'
   setShortcutModifier: (modifier: ShortcutModifier | 'auto') => void
   // Command presets
@@ -118,6 +120,8 @@ export const useSettingsStore = create<SettingsState>()(
         set({ sessionSortDirection: direction }),
       useWebGL: true,
       setUseWebGL: (enabled) => set({ useWebGL: enabled }),
+      lineHeight: 1.4,
+      setLineHeight: (height) => set({ lineHeight: Math.max(1.0, Math.min(2.0, height)) }),
       shortcutModifier: 'auto',
       setShortcutModifier: (modifier) => set({ shortcutModifier: modifier }),
       // Command presets

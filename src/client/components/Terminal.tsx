@@ -79,6 +79,7 @@ export default function Terminal({
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
   const terminalTheme = terminalThemes[theme]
   const useWebGL = useSettingsStore((state) => state.useWebGL)
+  const lineHeight = useSettingsStore((state) => state.lineHeight)
   const shortcutModifier = useSettingsStore((state) => state.shortcutModifier)
   const modDisplay = getModifierDisplay(getEffectiveModifier(shortcutModifier))
   const isiOS = isIOSDevice()
@@ -119,6 +120,7 @@ export default function Terminal({
     subscribe,
     theme: terminalTheme,
     fontSize,
+    lineHeight,
     useWebGL,
     onScrollChange: (isAtBottom) => {
       setShowScrollButton(!isAtBottom)
@@ -503,7 +505,7 @@ export default function Terminal({
     let lastTouchTime = 0
     let velocity = 0
     let accumulatedDelta = 0
-    let lineHeightPx = Math.round(fontSize * 1.4)
+    let lineHeightPx = Math.round(fontSize * lineHeight)
     let momentumAnimationId: number | null = null
 
     const resolveLineHeight = () => {
@@ -513,7 +515,7 @@ export default function Terminal({
       if (!Number.isNaN(parsed) && parsed > 0) {
         return parsed
       }
-      return Math.round(fontSize * 1.4)
+      return Math.round(fontSize * lineHeight)
     }
 
     const getTextarea = () =>
@@ -789,7 +791,7 @@ export default function Terminal({
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- use session?.id and refs to avoid re-running on unrelated changes
-  }, [session?.id, containerRef, terminalRef, isiOS, isMobileLayout, isDrawerOpen])
+  }, [session?.id, containerRef, terminalRef, isiOS, isMobileLayout, isDrawerOpen, fontSize, lineHeight])
 
   const handleSendKey = useCallback(
     (key: string) => {

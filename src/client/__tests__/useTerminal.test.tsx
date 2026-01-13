@@ -183,12 +183,14 @@ function TerminalHarness(props: {
   subscribe: (listener: (message: ServerMessage) => void) => () => void
   theme: ITheme
   fontSize: number
+  lineHeight?: number
   useWebGL?: boolean
   onScrollChange?: (isAtBottom: boolean) => void
 }) {
   const { containerRef } = useTerminal({
     ...props,
     tmuxTarget: props.tmuxTarget ?? null,
+    lineHeight: props.lineHeight ?? 1.4,
     useWebGL: props.useWebGL ?? true,
   })
   return <div ref={containerRef} />

@@ -44,6 +44,8 @@ export default function SettingsModal({
   )
   const useWebGL = useSettingsStore((state) => state.useWebGL)
   const setUseWebGL = useSettingsStore((state) => state.setUseWebGL)
+  const lineHeight = useSettingsStore((state) => state.lineHeight)
+  const setLineHeight = useSettingsStore((state) => state.setLineHeight)
   const shortcutModifier = useSettingsStore((state) => state.shortcutModifier)
   const setShortcutModifier = useSettingsStore(
     (state) => state.setShortcutModifier
@@ -57,6 +59,7 @@ export default function SettingsModal({
   const [draftSortDirection, setDraftSortDirection] =
     useState<SessionSortDirection>(sessionSortDirection)
   const [draftUseWebGL, setDraftUseWebGL] = useState(useWebGL)
+  const [draftLineHeight, setDraftLineHeight] = useState(lineHeight)
   const [draftShortcutModifier, setDraftShortcutModifier] = useState<
     ShortcutModifier | 'auto'
   >(shortcutModifier)
@@ -76,6 +79,7 @@ export default function SettingsModal({
       setDraftSortMode(sessionSortMode)
       setDraftSortDirection(sessionSortDirection)
       setDraftUseWebGL(useWebGL)
+      setDraftLineHeight(lineHeight)
       setDraftShortcutModifier(shortcutModifier)
       setShowAddForm(false)
       setNewLabel('')
@@ -90,6 +94,7 @@ export default function SettingsModal({
     sessionSortMode,
     sessionSortDirection,
     useWebGL,
+    lineHeight,
     shortcutModifier,
     isOpen,
   ])
@@ -108,6 +113,7 @@ export default function SettingsModal({
     setSessionSortMode(draftSortMode)
     setSessionSortDirection(draftSortDirection)
     setUseWebGL(draftUseWebGL)
+    setLineHeight(draftLineHeight)
     setShortcutModifier(draftShortcutModifier)
     onClose({ webglChanged })
   }
@@ -413,6 +419,27 @@ export default function SettingsModal({
                 Terminal will reload when saved
               </p>
             )}
+
+            <div className="mt-4 flex items-center justify-between">
+              <div>
+                <div className="text-sm text-primary">Line Height</div>
+                <div className="text-[10px] text-muted">
+                  Vertical spacing between lines (1.0 = compact, 2.0 = spacious)
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min="1.0"
+                  max="2.0"
+                  step="0.1"
+                  value={draftLineHeight}
+                  onChange={(e) => setDraftLineHeight(parseFloat(e.target.value))}
+                  className="w-20 h-1 bg-border rounded-lg appearance-none cursor-pointer accent-accent"
+                />
+                <span className="text-xs text-secondary w-8 text-right">{draftLineHeight.toFixed(1)}</span>
+              </div>
+            </div>
           </div>
 
           <div className="border-t border-border pt-4">
