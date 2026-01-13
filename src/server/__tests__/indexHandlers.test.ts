@@ -198,7 +198,7 @@ function createWs() {
     data: {
       terminals: new Map<string, TerminalProxyMock>(),
       terminal: null as TerminalProxyMock | null,
-      currentSessionId: null,
+      currentSessionId: null as string | null,
       connectionId: 'ws-test',
     },
     send: (payload: string) => {
@@ -504,6 +504,9 @@ describe('server message handlers', () => {
         tmuxTarget: baseSession.tmuxWindow,
       })
     )
+
+    // Wait for async attach operations to complete
+    await new Promise((r) => setTimeout(r, 0))
 
     const attached = ws.data.terminal
     if (!attached) {
