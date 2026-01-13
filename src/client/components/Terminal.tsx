@@ -1051,21 +1051,20 @@ export default function Terminal({
         {showScrollButton && session && !isSelectingText && (
           <button
             onClick={scrollToBottom}
-            className="absolute bottom-4 right-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-surface border border-border shadow-lg hover:bg-hover transition-colors"
+            className="absolute bottom-4 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-accent text-white shadow-lg hover:bg-accent/90 active:scale-95 transition-all"
             title="Scroll to bottom"
             aria-label="Scroll to bottom"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="text-secondary"
             >
               <path d="M12 5v14M5 12l7 7 7-7" />
             </svg>
