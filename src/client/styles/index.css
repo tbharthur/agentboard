@@ -202,14 +202,36 @@ body {
 .status-bar-approval { background: var(--approval); }
 .status-bar-waiting { background: var(--waiting); }
 
-/* Pulse animation for approval needed */
+/* Pulse animation for approval needed - more noticeable with glow */
 @keyframes pulse-approval {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 8px var(--approval);
+  }
+  50% {
+    opacity: 0.3;
+    box-shadow: 0 0 0px var(--approval);
+  }
 }
 
 .pulse-approval {
   animation: pulse-approval 1.5s ease-in-out infinite;
+}
+
+/* Pulse animation for status transition (working → waiting) */
+@keyframes pulse-complete {
+  0%, 20%, 40%, 60%, 80%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 8px var(--waiting);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    opacity: 0.3;
+    box-shadow: 0 0 0px var(--waiting);
+  }
+}
+
+.pulse-complete {
+  animation: pulse-complete 5s ease-out forwards;
 }
 
 /* Terminal styles */
@@ -435,7 +457,8 @@ body {
     transition-duration: 0.01ms !important;
   }
 
-  .pulse-approval {
+  .pulse-approval,
+  .pulse-complete {
     animation: none;
   }
 }

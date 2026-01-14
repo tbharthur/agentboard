@@ -90,7 +90,7 @@ export default function SessionList({
             No sessions
           </div>
         ) : (
-          <div className="py-1">
+          <div className="pb-1">
             <AnimatePresence initial={false}>
               {sortedSessions.map((session) => (
                 <motion.div
@@ -158,6 +158,26 @@ function SessionRow({
   const directoryLeaf = getPathLeaf(session.projectPath)
   const needsInput = session.status === 'permission'
 
+  // Track previous status for transition animation
+  const prevStatusRef = useRef<Session['status']>(session.status)
+  const [isPulsingComplete, setIsPulsingComplete] = useState(false)
+
+  useEffect(() => {
+    const prevStatus = prevStatusRef.current
+    const currentStatus = session.status
+
+    // Detect transition from working → waiting (not permission, which needs immediate attention)
+    if (prevStatus === 'working' && currentStatus === 'waiting') {
+      setIsPulsingComplete(true)
+      const timer = setTimeout(() => {
+        setIsPulsingComplete(false)
+      }, 5000)
+      return () => clearTimeout(timer)
+    }
+
+    prevStatusRef.current = currentStatus
+  }, [session.status])
+
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus()
@@ -217,7 +237,7 @@ function SessionRow({
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
     >
-      <div className={`status-bar ${statusBarClass[session.status]}`} />
+      <div className={`status-bar ${statusBarClass[session.status]}${isPulsingComplete ? ' pulse-complete' : ''}`} />
 
       <div className="flex flex-col gap-0.5 pl-2.5">
         {/* Line 1: Icon + Name + Time/Hand */}
