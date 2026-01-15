@@ -2,16 +2,51 @@
 
 ## Overview
 
-Add project-based filtering to the sessions sidebar, with a compact dropdown UI and persistence. Include an orange notification dot when filtered-out sessions need permission.
+Add project-based filtering to the sessions sidebar, with a compact dropdown UI and persistence. Include an orange notification dot when filtered-out **active** sessions need permission.
 
 ## Requirements
 
 - Dropdown in sidebar header next to session count
 - "All Projects" as default, plus dynamic list from current sessions
 - Filter applies to both active and inactive sessions
-- Persist selection to localStorage
-- Orange dot indicator when hidden sessions have `permission` status
+- Persist selection to localStorage (and optionally sync to URL)
+- Orange dot indicator when hidden **active** sessions have `permission` status
 - Click dot to clear filter
+- Keyboard accessible with proper ARIA attributes
+
+---
+
+## Open Questions
+
+### URL State Sync
+
+Should filter be reflected in URL for shareability/bookmarking?
+
+**Option A: localStorage only (simpler)**
+- Filter persists per-browser
+- No URL clutter
+- Can't share filtered view
+
+**Option B: URL query param (more flexible)**
+- `?project=/path/to/project` or `?project=encoded-name`
+- Shareable/bookmarkable filtered views
+- Needs URL encoding for paths with special chars
+- Could sync bidirectionally with localStorage
+
+**Recommendation:** Start with localStorage, add URL sync later if needed. Structure the store setter to make this easy to add.
+
+### Path Normalization
+
+**Existing issue:** `projectPath` values come directly from agent log files without normalization. The same project could appear as `/foo/bar` and `/foo/bar/` (trailing slash) or with different separators on Windows.
+
+There's already a `normalizePath()` in `logMatcher.ts` that strips trailing slashes and normalizes separators, but it's only used for matching, not storage.
+
+**Options:**
+1. Normalize in `getUniqueProjects()` for filtering only (minimal change)
+2. Normalize paths at the source when parsing logs (broader fix)
+3. Both - normalize at source and in filter for defense
+
+**Recommendation:** Option 1 for this feature, file separate issue for Option 2.
 
 ---
 
@@ -57,6 +92,16 @@ Implementation:
 - Truncate long names in trigger, show full path on hover/title
 - Orange dot positioned top-right of dropdown when `hasHiddenPermissions && selectedProject !== null`
 
+**Accessibility:**
+- If using native `<select>`: keyboard accessible by default
+- If custom dropdown:
+  - `role="listbox"` on menu, `role="option"` on items
+  - `aria-label="Filter by project"`
+  - `aria-expanded` on trigger
+  - Arrow key navigation
+  - Escape to close
+  - Focus management on open/close
+
 **Duplicate folder name handling:**
 - Create utility function `getProjectDisplayNames(paths: string[]): Map<string, string>`
 - If leaf names are unique, use leaf (e.g., "api")
@@ -69,14 +114,31 @@ Implementation:
 **File:** `src/client/utils/sessions.ts`
 
 ```ts
+// Normalize path for comparison (strip trailing slash, normalize separators)
+export function normalizeProjectPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
 export function getUniqueProjects(
   sessions: Session[],
   inactiveSessions: AgentSession[]
-): string[]
+): string[] {
+  const paths = new Set<string>()
+
+  for (const s of sessions) {
+    if (s.projectPath) paths.add(normalizeProjectPath(s.projectPath))
+  }
+  for (const s of inactiveSessions) {
+    if (s.projectPath) paths.add(normalizeProjectPath(s.projectPath))
+  }
+
+  return Array.from(paths).sort()
+}
 ```
 
 - Extract `projectPath` from both arrays
-- Dedupe and sort alphabetically
+- **Normalize paths** before deduping (handles trailing slashes, separators)
+- Sort alphabetically
 - Memoize in component to avoid recalc on every render
 
 ---
@@ -118,25 +180,30 @@ export function getDisambiguatedProjectNames(
    )
    ```
 
-4. Filter sessions:
+4. Filter sessions (using normalized comparison):
    ```ts
    const filteredSessions = useMemo(() => {
      if (!projectFilter) return sortedSessions
-     return sortedSessions.filter(s => s.projectPath === projectFilter)
+     return sortedSessions.filter(
+       s => normalizeProjectPath(s.projectPath) === projectFilter
+     )
    }, [sortedSessions, projectFilter])
 
    const filteredInactiveSessions = useMemo(() => {
      if (!projectFilter) return inactiveSessions
-     return inactiveSessions.filter(s => s.projectPath === projectFilter)
+     return inactiveSessions.filter(
+       s => normalizeProjectPath(s.projectPath) === projectFilter
+     )
    }, [inactiveSessions, projectFilter])
    ```
 
-5. Calculate hidden permission count:
+5. Calculate hidden permission count (**active sessions only**):
    ```ts
    const hiddenPermissionCount = useMemo(() => {
      if (!projectFilter) return 0
      return sortedSessions.filter(
-       s => s.projectPath !== projectFilter && s.status === 'permission'
+       s => normalizeProjectPath(s.projectPath) !== projectFilter
+         && s.status === 'permission'
      ).length
    }, [sortedSessions, projectFilter])
    ```
@@ -180,7 +247,7 @@ export function getDisambiguatedProjectNames(
 
 In `ProjectFilterDropdown`:
 - When dot is clicked, call `onSelect(null)` to clear filter
-- Optional: show tooltip on hover "Hidden sessions need attention"
+- Add `title="Hidden sessions need attention"` for tooltip on hover
 
 ---
 
@@ -204,27 +271,34 @@ In `ProjectFilterDropdown`:
 | Very long project list | Scrollable dropdown with max-height |
 | Mobile viewport | Truncate names, use native select if needed |
 | Rapid session changes | Memoize project extraction |
-| Permission + filtered | Orange dot, click to clear |
+| Permission + filtered | Orange dot (active only), click to clear |
+| Trailing slashes in paths | Normalize before comparison |
+| Mixed path separators | Normalize `\` to `/` |
 
 ---
 
 ## Testing
 
 1. **Unit tests** (`src/client/utils/`)
-   - `getUniqueProjects` - deduplication, sorting
+   - `normalizeProjectPath` - trailing slashes, backslashes
+   - `getUniqueProjects` - deduplication, sorting, normalization
    - `getDisambiguatedProjectNames` - various duplicate scenarios
 
-2. **Manual testing**
+2. **Manual/integration testing**
    - Filter persists across refresh
    - Filter clears when project no longer exists
-   - Orange dot appears/disappears correctly
+   - Orange dot appears only for hidden active permission sessions
+   - Orange dot does NOT appear for inactive sessions with permission
    - Inactive sessions filter correctly
    - Session count updates with filter
+   - Keyboard navigation works (Tab, Enter, Escape, arrows)
+   - Screen reader announces filter state
 
 ---
 
 ## Future Extensions
 
+- URL sync for shareable filtered views
 - Status filter (working/waiting/permission) - add `statusFilter: SessionStatus[] | null` to store
 - Search/filter within long project dropdown
 - Filter presets / saved filters
@@ -238,6 +312,12 @@ In `ProjectFilterDropdown`:
 | `src/client/stores/settingsStore.ts` | Add `projectFilter` state |
 | `src/client/components/ProjectFilterDropdown.tsx` | New component |
 | `src/client/components/SessionList.tsx` | Integrate filter |
-| `src/client/utils/sessions.ts` | Add `getUniqueProjects` |
+| `src/client/utils/sessions.ts` | Add `normalizeProjectPath`, `getUniqueProjects` |
 | `src/client/utils/sessionLabel.ts` | Add `getDisambiguatedProjectNames` |
 | `src/client/styles/index.css` | Orange dot styles (if needed) |
+
+---
+
+## Related Issues
+
+- **Path normalization at source**: Currently `projectPath` values from log files aren't normalized before storage. This should be addressed separately in `logDiscovery.ts` to prevent path inconsistencies across the app.
