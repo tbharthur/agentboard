@@ -221,41 +221,47 @@ describe('command preset actions', () => {
 
   test('adds presets and respects max size', () => {
     const { addPreset } = useSettingsStore.getState()
+    const originalWarn = console.warn
+    console.warn = () => {}
 
-    addPreset({
-      label: '  New Preset  ',
-      baseCommand: '  bun  ',
-      modifiers: '  --inspect  ',
-      agentType: 'codex',
-    })
+    try {
+      addPreset({
+        label: '  New Preset  ',
+        baseCommand: '  bun  ',
+        modifiers: '  --inspect  ',
+        agentType: 'codex',
+      })
 
-    const { commandPresets } = useSettingsStore.getState()
-    const added = commandPresets[commandPresets.length - 1]
+      const { commandPresets } = useSettingsStore.getState()
+      const added = commandPresets[commandPresets.length - 1]
 
-    expect(commandPresets.length).toBe(DEFAULT_PRESETS.length + 1)
-    expect(added?.label).toBe('New Preset')
-    expect(added?.baseCommand).toBe('bun')
-    expect(added?.modifiers).toBe('--inspect')
-    expect(added?.isBuiltIn).toBe(false)
-    expect(added?.agentType).toBe('codex')
-    expect(added?.id).toContain('custom-')
+      expect(commandPresets.length).toBe(DEFAULT_PRESETS.length + 1)
+      expect(added?.label).toBe('New Preset')
+      expect(added?.baseCommand).toBe('bun')
+      expect(added?.modifiers).toBe('--inspect')
+      expect(added?.isBuiltIn).toBe(false)
+      expect(added?.agentType).toBe('codex')
+      expect(added?.id).toContain('custom-')
 
-    const maxPresets = Array.from({ length: 50 }, (_, index) => ({
-      id: `custom-${index}`,
-      label: `Preset ${index}`,
-      baseCommand: 'bun',
-      modifiers: '',
-      isBuiltIn: false,
-    }))
+      const maxPresets = Array.from({ length: 50 }, (_, index) => ({
+        id: `custom-${index}`,
+        label: `Preset ${index}`,
+        baseCommand: 'bun',
+        modifiers: '',
+        isBuiltIn: false,
+      }))
 
-    useSettingsStore.setState({ commandPresets: maxPresets })
-    addPreset({
-      label: 'Overflow',
-      baseCommand: 'bun',
-      modifiers: '',
-    })
+      useSettingsStore.setState({ commandPresets: maxPresets })
+      addPreset({
+        label: 'Overflow',
+        baseCommand: 'bun',
+        modifiers: '',
+      })
 
-    expect(useSettingsStore.getState().commandPresets).toHaveLength(50)
+      expect(useSettingsStore.getState().commandPresets).toHaveLength(50)
+    } finally {
+      console.warn = originalWarn
+    }
   })
 
   test('removes custom presets and preserves built-ins', () => {

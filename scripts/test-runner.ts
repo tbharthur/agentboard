@@ -1,0 +1,65 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+const args = process.argv.slice(2)
+const skipIsolated = args.includes('--skip-isolated')
+const passthroughArgs = args.filter((arg) => arg !== '--skip-isolated')
+
+function createTempLogDirs() {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agentboard-tests-'))
+  const claudeDir = path.join(tempRoot, 'claude')
+  const codexDir = path.join(tempRoot, 'codex')
+  fs.mkdirSync(path.join(claudeDir, 'projects'), { recursive: true })
+  fs.mkdirSync(path.join(codexDir, 'sessions'), { recursive: true })
+  return { tempRoot, claudeDir, codexDir }
+}
+
+async function runCommand(cmd: string[], env: NodeJS.ProcessEnv) {
+  const proc = Bun.spawn({
+    cmd,
+    env,
+    stdout: 'inherit',
+    stderr: 'inherit',
+  })
+  const exitCode = await proc.exited
+  if (exitCode !== 0) {
+    throw new Error(`Command failed (${exitCode}): ${cmd.join(' ')}`)
+  }
+}
+
+async function main() {
+  const { tempRoot, claudeDir, codexDir } = createTempLogDirs()
+  const env = {
+    ...process.env,
+    CLAUDE_CONFIG_DIR: claudeDir,
+    CODEX_HOME: codexDir,
+  }
+
+  try {
+    const serverTests: string[] = []
+    const serverGlob = new Bun.Glob('src/server/__tests__/*.test.ts')
+    for await (const file of serverGlob.scan({ onlyFiles: true })) {
+      serverTests.push(file)
+    }
+
+    await runCommand(
+      ['bun', 'test', ...passthroughArgs, ...serverTests, 'src/client/__tests__'],
+      env
+    )
+
+    if (!skipIsolated) {
+      await runCommand(
+        ['bun', 'test', ...passthroughArgs, 'src/server/__tests__/isolated/'],
+        env
+      )
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+}
+
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
