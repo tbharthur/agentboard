@@ -171,6 +171,17 @@ export default function SessionList({
   const showSessionIdPrefix = useSettingsStore(
     (state) => state.showSessionIdPrefix
   )
+
+  // Clean up manualSessionOrder when sessions are removed
+  useEffect(() => {
+    if (manualSessionOrder.length === 0) return
+    const currentIds = new Set(sessions.map((s) => s.id))
+    const validOrder = manualSessionOrder.filter((id) => currentIds.has(id))
+    if (validOrder.length !== manualSessionOrder.length) {
+      setManualSessionOrder(validOrder)
+    }
+  }, [sessions, manualSessionOrder, setManualSessionOrder])
+
   const sortedSessions = sortSessions(sessions, {
     mode: sessionSortMode,
     direction: sessionSortDirection,
@@ -189,9 +200,12 @@ export default function SessionList({
   // Track active drag state for drop indicator
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
+  // Disable layout animations briefly after drag to prevent conflicts
+  const [layoutAnimationsDisabled, setLayoutAnimationsDisabled] = useState(false)
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string)
+    setLayoutAnimationsDisabled(true)
   }, [])
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
@@ -204,11 +218,18 @@ export default function SessionList({
       setActiveId(null)
       setOverId(null)
 
-      if (!over || active.id === over.id) return
+      if (!over || active.id === over.id) {
+        // Re-enable layout animations after a brief delay
+        setTimeout(() => setLayoutAnimationsDisabled(false), 100)
+        return
+      }
 
       const oldIndex = sortedSessions.findIndex((s) => s.id === active.id)
       const newIndex = sortedSessions.findIndex((s) => s.id === over.id)
-      if (oldIndex === -1 || newIndex === -1) return
+      if (oldIndex === -1 || newIndex === -1) {
+        setTimeout(() => setLayoutAnimationsDisabled(false), 100)
+        return
+      }
 
       // Create new order array
       const newOrder = sortedSessions.map((s) => s.id)
@@ -220,6 +241,8 @@ export default function SessionList({
         setSessionSortMode('manual')
       }
       setManualSessionOrder(newOrder)
+      // Re-enable layout animations after state settles
+      setTimeout(() => setLayoutAnimationsDisabled(false), 100)
     },
     [sortedSessions, sessionSortMode, setSessionSortMode, setManualSessionOrder]
   )
@@ -227,6 +250,7 @@ export default function SessionList({
   const handleDragCancel = useCallback(() => {
     setActiveId(null)
     setOverId(null)
+    setTimeout(() => setLayoutAnimationsDisabled(false), 100)
   }, [])
 
   const handleRename = (sessionId: string, newName: string) => {
@@ -300,6 +324,7 @@ export default function SessionList({
                         entryDelay={entryDelay}
                         exitDuration={EXIT_DURATION}
                         prefersReducedMotion={prefersReducedMotion}
+                        layoutAnimationsDisabled={layoutAnimationsDisabled}
                         isSelected={session.id === selectedSessionId}
                         isEditing={session.id === editingSessionId}
                         showSessionIdPrefix={showSessionIdPrefix}
@@ -419,6 +444,7 @@ interface SortableSessionItemProps {
   entryDelay: number
   exitDuration: number
   prefersReducedMotion: boolean | null
+  layoutAnimationsDisabled: boolean
   isSelected: boolean
   isEditing: boolean
   showSessionIdPrefix: boolean
@@ -435,6 +461,7 @@ function SortableSessionItem({
   entryDelay,
   exitDuration,
   prefersReducedMotion,
+  layoutAnimationsDisabled,
   isSelected,
   isEditing,
   showSessionIdPrefix,
@@ -465,7 +492,7 @@ function SortableSessionItem({
       ref={setNodeRef}
       style={style}
       className="relative"
-      layout={!prefersReducedMotion && !isDragging}
+      layout={!prefersReducedMotion && !isDragging && !layoutAnimationsDisabled}
       initial={prefersReducedMotion ? false : { opacity: 0, y: -16, scale: 0.85 }}
       animate={
         prefersReducedMotion
