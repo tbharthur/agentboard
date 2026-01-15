@@ -313,7 +313,9 @@ body {
 }
 
 .session-row.selected {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-left: none;
 }
 
 .session-row.selected:hover {
@@ -397,7 +399,6 @@ body {
     width: 75vw;
     max-width: 300px;
     padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
     background: var(--bg-elevated);
     border-right: 1px solid var(--border);
     transform: translateX(-100%);
