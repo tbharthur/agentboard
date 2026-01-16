@@ -166,6 +166,7 @@ function createContainerMock() {
         listeners.delete(event)
       }
     },
+    contains: () => false,
     focus: () => {},
     querySelector: (selector: string) =>
       selector === '.xterm-helper-textarea' ? textarea : null,
@@ -516,6 +517,169 @@ describe('Terminal', () => {
 
     expect(selectCalls).toEqual([secondSession.id])
     expect(vibrateCalls).toBe(1)
+
+    act(() => {
+      renderer.unmount()
+    })
+  })
+
+  test('keyboard button exits copy-mode when active', () => {
+    const sentMessages: unknown[] = []
+
+    const { createNodeMock } = createContainerMock()
+    let renderer!: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(
+        <Terminal
+          session={baseSession}
+          sessions={[baseSession]}
+          connectionStatus="connected"
+          sendMessage={(msg) => { sentMessages.push(msg) }}
+          subscribe={() => () => {}}
+          onClose={() => {}}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+          onKillSession={() => {}}
+          onRenameSession={() => {}}
+          onResumeSession={() => {}}
+          onOpenSettings={() => {}}
+        />,
+        {
+          createNodeMock,
+        }
+      )
+    })
+
+    const terminalInstance = TerminalMock.instances[0]
+    if (!terminalInstance) {
+      throw new Error('Expected terminal instance')
+    }
+
+    act(() => {
+      terminalInstance.emitWheel({ deltaY: 60 } as WheelEvent)
+    })
+
+    const keyboardButton = renderer.root.findByProps({ 'aria-label': 'Show keyboard' })
+    act(() => {
+      keyboardButton.props.onClick()
+    })
+
+    expect(
+      sentMessages.some(
+        (msg) =>
+          msg &&
+          typeof msg === 'object' &&
+          (msg as { type?: string }).type === 'tmux-cancel-copy-mode'
+      )
+    ).toBe(true)
+
+    act(() => {
+      renderer.unmount()
+    })
+  })
+
+  test('shows connection status and new session button triggers callback', () => {
+    const { createNodeMock } = createContainerMock()
+    let newSessionCalls = 0
+    let renderer!: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(
+        <Terminal
+          session={baseSession}
+          sessions={[baseSession]}
+          connectionStatus="reconnecting"
+          sendMessage={() => {}}
+          subscribe={() => () => {}}
+          onClose={() => {}}
+          onSelectSession={() => {}}
+          onNewSession={() => {
+            newSessionCalls += 1
+          }}
+          onKillSession={() => {}}
+          onRenameSession={() => {}}
+          onResumeSession={() => {}}
+          onOpenSettings={() => {}}
+        />,
+        {
+          createNodeMock,
+        }
+      )
+    })
+
+    const html = JSON.stringify(renderer.toJSON())
+    expect(html).toContain('reconnecting')
+
+    const newSessionButton = renderer.root.findByProps({ 'aria-label': 'New session' })
+    act(() => {
+      newSessionButton.props.onClick()
+    })
+
+    expect(newSessionCalls).toBe(1)
+
+    act(() => {
+      renderer.unmount()
+    })
+  })
+
+  test('rename submits only when name changes', () => {
+    const renamed: Array<{ id: string; name: string }> = []
+    const { createNodeMock } = createContainerMock()
+    let renderer!: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(
+        <Terminal
+          session={baseSession}
+          sessions={[baseSession]}
+          connectionStatus="connected"
+          sendMessage={() => {}}
+          subscribe={() => () => {}}
+          onClose={() => {}}
+          onSelectSession={() => {}}
+          onNewSession={() => {}}
+          onKillSession={() => {}}
+          onRenameSession={(id, name) => renamed.push({ id, name })}
+          onResumeSession={() => {}}
+          onOpenSettings={() => {}}
+        />,
+        {
+          createNodeMock,
+        }
+      )
+    })
+
+    const moreButton = renderer.root.findByProps({ title: 'More options' })
+    act(() => {
+      moreButton.props.onClick()
+    })
+
+    const renameButton = renderer.root.findAllByType('button').find((button) => {
+      const children = button.props.children
+      if (Array.isArray(children)) {
+        return children.some((child: unknown) => child === 'Rename')
+      }
+      return children === 'Rename'
+    })
+
+    if (!renameButton) {
+      throw new Error('Expected rename button')
+    }
+
+    act(() => {
+      renameButton.props.onClick()
+    })
+
+    const input = renderer.root.findByType('input')
+    act(() => {
+      input.props.onKeyDown({
+        key: 'Enter',
+        preventDefault: () => {},
+      })
+    })
+
+    expect(renamed).toEqual([])
 
     act(() => {
       renderer.unmount()
