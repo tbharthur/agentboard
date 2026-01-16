@@ -685,6 +685,49 @@ describe('server signal handlers', () => {
 })
 
 describe('server fetch handlers', () => {
+  test('server-info returns tailscale ip when available', async () => {
+    spawnSyncImpl = ((...args: Parameters<typeof Bun.spawnSync>) => {
+      const command = Array.isArray(args[0]) ? args[0] : [String(args[0])]
+      if (command[0] === 'tailscale') {
+        return {
+          exitCode: 0,
+          stdout: Buffer.from('100.64.0.42\n'),
+          stderr: Buffer.from(''),
+        } as ReturnType<typeof Bun.spawnSync>
+      }
+      return {
+        exitCode: 0,
+        stdout: Buffer.from(''),
+        stderr: Buffer.from(''),
+      } as ReturnType<typeof Bun.spawnSync>
+    }) as typeof Bun.spawnSync
+
+    const { serveOptions } = await loadIndex()
+    const fetchHandler = serveOptions.fetch
+    if (!fetchHandler) {
+      throw new Error('Fetch handler not configured')
+    }
+
+    const response = await fetchHandler.call(
+      {} as Bun.Server<unknown>,
+      new Request('http://localhost/api/server-info'),
+      {} as Bun.Server<unknown>
+    )
+
+    if (!response) {
+      throw new Error('Expected response for server-info request')
+    }
+
+    const payload = (await response.json()) as {
+      port: number
+      tailscaleIp: string | null
+      protocol: string
+    }
+    expect(payload.port).toBe(4040)
+    expect(payload.protocol).toBe('http')
+    expect(payload.tailscaleIp).toBe('100.64.0.42')
+  })
+
   test('returns no response for successful websocket upgrades', async () => {
     const { serveOptions } = await loadIndex()
     const fetchHandler = serveOptions.fetch
@@ -844,5 +887,44 @@ describe('server fetch handlers', () => {
     expect(response.status).toBe(500)
     const payload = (await response.json()) as { error: string }
     expect(payload.error).toBe('write-failed')
+  })
+})
+
+describe('server startup side effects', () => {
+  test('prunes unattached websocket sessions on startup', async () => {
+    const calls: string[][] = []
+    spawnSyncImpl = ((...args: Parameters<typeof Bun.spawnSync>) => {
+      const command = Array.isArray(args[0]) ? args[0] : [String(args[0])]
+      calls.push(command as string[])
+      if (command[0] === 'tmux' && command[1] === 'list-sessions') {
+        return {
+          exitCode: 0,
+          stdout: Buffer.from(
+            ['agentboard-ws-1\t0', 'agentboard-ws-2\t1', 'other\t0'].join('\n')
+          ),
+          stderr: Buffer.from(''),
+        } as ReturnType<typeof Bun.spawnSync>
+      }
+      if (command[0] === 'tmux' && command[1] === 'kill-session') {
+        return {
+          exitCode: 0,
+          stdout: Buffer.from(''),
+          stderr: Buffer.from(''),
+        } as ReturnType<typeof Bun.spawnSync>
+      }
+      return {
+        exitCode: 0,
+        stdout: Buffer.from(''),
+        stderr: Buffer.from(''),
+      } as ReturnType<typeof Bun.spawnSync>
+    }) as typeof Bun.spawnSync
+
+    await loadIndex()
+
+    const killCalls = calls.filter(
+      (command) => command[0] === 'tmux' && command[1] === 'kill-session'
+    )
+    expect(killCalls).toHaveLength(1)
+    expect(killCalls[0]).toEqual(['tmux', 'kill-session', '-t', 'agentboard-ws-1'])
   })
 })

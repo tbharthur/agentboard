@@ -68,6 +68,38 @@ describe('TerminalControls', () => {
     expect(sent[1]).toBe('a')
   })
 
+  test('session switcher selects sessions when multiple are present', () => {
+    globalAny.navigator = { vibrate: () => true } as unknown as Navigator
+
+    const selections: string[] = []
+
+    const renderer = TestRenderer.create(
+      <TerminalControls
+        onSendKey={() => {}}
+        sessions={[
+          { id: 'session-1', name: 'alpha', status: 'working' },
+          { id: 'session-2', name: 'beta', status: 'waiting' },
+        ]}
+        currentSessionId="session-1"
+        onSelectSession={(id) => selections.push(id)}
+      />
+    )
+
+    const sessionButtons = renderer.root
+      .findAllByType('button')
+      .filter((button) =>
+        String(button.props.className ?? '').includes('snap-start')
+      )
+
+    expect(sessionButtons).toHaveLength(2)
+
+    act(() => {
+      sessionButtons[1]?.props.onClick()
+    })
+
+    expect(selections).toEqual(['session-2'])
+  })
+
   test('paste button uses clipboard text fallback and refocuses', async () => {
     let refocused = false
     const sent: string[] = []
