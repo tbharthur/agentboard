@@ -76,10 +76,15 @@ describe('Header', () => {
 
     const buttons = renderer.root.findAllByType('button')
     const ipButton = buttons.find((node) =>
-      node.children.includes('100.64.1.2')
+      node.props.title === 'Tailscale IP - click to copy remote access URL'
     )
     expect(ipButton).toBeDefined()
-    expect(ipButton?.props.title).toBe('Tailscale IP - click to copy remote access URL')
+
+    // Check that the IP text is rendered inside a span
+    const ipSpan = renderer.root.findAllByType('span').find((node) =>
+      Array.isArray(node.children) && node.children.includes('100.64.1.2')
+    )
+    expect(ipSpan).toBeDefined()
 
     act(() => {
       renderer.unmount()

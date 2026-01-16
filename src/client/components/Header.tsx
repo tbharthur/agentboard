@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ConnectionStatus } from '../stores/sessionStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { PlusIcon } from '@untitledui-icons/react/line'
+import Copy01Icon from '@untitledui-icons/react/line/esm/Copy01Icon'
 import { getEffectiveModifier, getModifierDisplay } from '../utils/device'
 
 interface HeaderProps {
@@ -46,10 +47,11 @@ export default function Header({
           {tailscaleIp && (
             <button
               onClick={handleCopyTailscaleUrl}
-              className="ml-1 text-muted/70 hover:text-muted transition-colors cursor-pointer leading-none"
+              className="ml-3 inline-flex items-center gap-1 text-muted/70 hover:text-muted transition-colors cursor-pointer"
               title="Tailscale IP - click to copy remote access URL"
             >
-              {copied ? 'Copied!' : tailscaleIp}
+              <span className="leading-none translate-y-[1px]">{copied ? 'Copied!' : tailscaleIp}</span>
+              {!copied && <Copy01Icon width={12} height={12} className="shrink-0" />}
             </button>
           )}
         </div>
