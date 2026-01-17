@@ -44,7 +44,19 @@ export const useSessionStore = create<SessionState>()(
       connectionStatus: 'connecting',
       connectionError: null,
       setSessions: (sessions) => {
-        const selected = get().selectedSessionId
+        const state = get()
+        const selected = state.selectedSessionId
+        const currentSessions = state.sessions
+        const exitingSessions = state.exitingSessions
+
+        // Detect sessions removed by external sources (other tabs, devices, tmux).
+        // Mark them as exiting so SessionList can animate them out gracefully.
+        // Without this, externally-killed sessions vanish instantly causing artifacts.
+        const newSessionIds = new Set(sessions.map((s) => s.id))
+        const removedSessions = currentSessions.filter(
+          (s) => !newSessionIds.has(s.id) && !exitingSessions.has(s.id)
+        )
+
         let newSelectedId: string | null = selected
         if (
           selected !== null &&
@@ -59,11 +71,26 @@ export const useSessionStore = create<SessionState>()(
           })
           newSelectedId = sorted[0]?.id ?? null
         }
-        set({
-          sessions,
-          hasLoaded: true,
-          selectedSessionId: newSelectedId,
-        })
+
+        // Only update exitingSessions if there are newly removed sessions
+        if (removedSessions.length > 0) {
+          const nextExitingSessions = new Map(exitingSessions)
+          for (const session of removedSessions) {
+            nextExitingSessions.set(session.id, session)
+          }
+          set({
+            sessions,
+            hasLoaded: true,
+            selectedSessionId: newSelectedId,
+            exitingSessions: nextExitingSessions,
+          })
+        } else {
+          set({
+            sessions,
+            hasLoaded: true,
+            selectedSessionId: newSelectedId,
+          })
+        }
       },
       setAgentSessions: (active, inactive) =>
         set({
