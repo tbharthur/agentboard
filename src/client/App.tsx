@@ -381,7 +381,7 @@ export default function App() {
       {/* Terminal - full height on desktop */}
       <Terminal
         session={selectedSession}
-        sessions={sortedSessions}
+        sessions={filteredSortedSessions}
         connectionStatus={connectionStatus}
         sendMessage={sendMessage}
         subscribe={subscribe}
