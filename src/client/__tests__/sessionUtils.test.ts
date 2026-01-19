@@ -33,21 +33,22 @@ function makeInactive(overrides: Partial<AgentSession>): AgentSession {
 }
 
 describe('getUniqueProjects', () => {
-  test('dedupes and sorts project paths', () => {
+  test('dedupes and sorts project paths by most recent activity', () => {
     const sessions = [
-      makeSession({ id: 'a', projectPath: '/tmp/beta' }),
-      makeSession({ id: 'b', projectPath: '/tmp/alpha' }),
-      makeSession({ id: 'c', projectPath: '/tmp/alpha' }),
+      makeSession({ id: 'a', projectPath: '/tmp/beta', lastActivity: '2024-01-01T01:00:00.000Z' }),
+      makeSession({ id: 'b', projectPath: '/tmp/alpha', lastActivity: '2024-01-01T03:00:00.000Z' }),
+      makeSession({ id: 'c', projectPath: '/tmp/alpha', lastActivity: '2024-01-01T02:00:00.000Z' }),
     ]
     const inactive = [
-      makeInactive({ sessionId: 'inactive-2', projectPath: '/tmp/charlie' }),
-      makeInactive({ sessionId: 'inactive-3', projectPath: '/tmp/beta' }),
+      makeInactive({ sessionId: 'inactive-2', projectPath: '/tmp/charlie', lastActivityAt: '2024-01-01T04:00:00.000Z' }),
+      makeInactive({ sessionId: 'inactive-3', projectPath: '/tmp/beta', lastActivityAt: '2024-01-01T00:30:00.000Z' }),
     ]
 
+    // Sorted by most recent activity: charlie (04:00), alpha (03:00), beta (01:00)
     expect(getUniqueProjects(sessions, inactive)).toEqual([
+      '/tmp/charlie',
       '/tmp/alpha',
       '/tmp/beta',
-      '/tmp/charlie',
     ])
   })
 

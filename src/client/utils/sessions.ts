@@ -71,17 +71,35 @@ export function getUniqueProjects(
   sessions: Session[],
   inactiveSessions: AgentSession[]
 ): string[] {
-  const paths = new Set<string>()
+  // Track the most recent activity timestamp for each project
+  const projectActivity = new Map<string, number>()
 
   for (const session of sessions) {
     const path = session.projectPath?.trim()
-    if (path) paths.add(path)
+    if (path) {
+      const timestamp = Date.parse(session.lastActivity) || 0
+      const existing = projectActivity.get(path) || 0
+      if (timestamp > existing) {
+        projectActivity.set(path, timestamp)
+      }
+    }
   }
 
   for (const session of inactiveSessions) {
     const path = session.projectPath?.trim()
-    if (path) paths.add(path)
+    if (path) {
+      const timestamp = Date.parse(session.lastActivityAt) || 0
+      const existing = projectActivity.get(path) || 0
+      if (timestamp > existing) {
+        projectActivity.set(path, timestamp)
+      }
+    }
   }
 
-  return Array.from(paths).sort((a, b) => a.localeCompare(b))
+  // Sort by most recent activity (descending)
+  return Array.from(projectActivity.keys()).sort((a, b) => {
+    const aTime = projectActivity.get(a) || 0
+    const bTime = projectActivity.get(b) || 0
+    return bTime - aTime
+  })
 }
