@@ -383,7 +383,7 @@ describe('useTerminal', () => {
     expect(sendCalls.some((call) => call.type === 'terminal-resize')).toBe(true)
   })
 
-  test('detaches previous session and cleans up on unmount', () => {
+  test('detaches previous session and cleans up on unmount', async () => {
     globalAny.navigator = {
       userAgent: 'Chrome',
       platform: 'MacIntel',
@@ -396,7 +396,7 @@ describe('useTerminal', () => {
 
     let renderer!: TestRenderer.ReactTestRenderer
 
-    act(() => {
+    await act(async () => {
       renderer = TestRenderer.create(
         <TerminalHarness
           sessionId="session-1"
@@ -410,9 +410,11 @@ describe('useTerminal', () => {
           createNodeMock: () => container,
         }
       )
+      // Wait for document.fonts.ready promise to resolve
+      await Promise.resolve()
     })
 
-    act(() => {
+    await act(async () => {
       renderer.update(
         <TerminalHarness
           sessionId="session-2"
@@ -423,6 +425,7 @@ describe('useTerminal', () => {
           fontSize={12}
         />
       )
+      await Promise.resolve()
     })
 
     expect(sendCalls).toContainEqual({
