@@ -215,6 +215,9 @@ export function useTerminal({
     // Already initialized
     if (terminalRef.current) return
 
+    // Track if effect has been cleaned up (for async font loading)
+    let cancelled = false
+
     // Clear container
     container.innerHTML = ''
 
@@ -254,18 +257,33 @@ export function useTerminal({
     terminal.loadAddon(progressAddon)
     progressAddonRef.current = progressAddon
 
-    if (useWebGLRef.current) {
-      try {
-        const webglAddon = new WebglAddon()
-        terminal.loadAddon(webglAddon)
-        webglAddonRef.current = webglAddon
-      } catch {
-        // WebGL addon is optional
+    // Function to complete terminal initialization after fonts are ready
+    // This ensures the WebGL renderer builds its texture atlas with correct font metrics
+    const openTerminal = () => {
+      if (cancelled) return
+
+      if (useWebGLRef.current) {
+        try {
+          const webglAddon = new WebglAddon()
+          terminal.loadAddon(webglAddon)
+          webglAddonRef.current = webglAddon
+        } catch {
+          // WebGL addon is optional
+        }
       }
+
+      terminal.open(container)
+      fitAddon.fit()
     }
 
-    terminal.open(container)
-    fitAddon.fit()
+    // Wait for fonts to be ready before opening terminal to ensure WebGL
+    // texture atlas is built with correct glyph metrics for all font weights
+    if (document.fonts?.ready) {
+      document.fonts.ready.then(openTerminal).catch(openTerminal)
+    } else {
+      // Fallback for environments without document.fonts
+      openTerminal()
+    }
 
     // Create tooltip element inside terminal (with xterm-hover class to prevent interference)
     // Guard for test environments where document.createElement may not be available
@@ -434,14 +452,6 @@ export function useTerminal({
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
 
-    if (document.fonts?.ready) {
-      document.fonts.ready.then(() => {
-        fitAndResize()
-      }).catch(() => {
-        // Ignore font readiness errors
-      })
-    }
-
     // Desktop Safari + Retina: force refresh to fix blurry WebGL canvas
     const isSafariDesktop = /^((?!chrome|android).)*safari/i.test(navigator.userAgent) && !isiOS
     if (isSafariDesktop && window.devicePixelRatio > 1) {
@@ -451,6 +461,8 @@ export function useTerminal({
     }
 
     return () => {
+      // Cancel any pending async operations (font loading)
+      cancelled = true
       // Remove tooltip element
       if (linkTooltipRef.current) {
         linkTooltipRef.current.remove()
