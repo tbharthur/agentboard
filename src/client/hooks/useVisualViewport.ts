@@ -75,7 +75,6 @@ export function useVisualViewport() {
 
     let rafId: number | null = null
     let pollTimer: number | null = null
-    let basePollTimer: number | null = null
 
     const isTextInputActive = () => {
       const active = document.activeElement
@@ -91,10 +90,6 @@ export function useVisualViewport() {
       updateKeyboardInset({ viewport, win: window, doc: document })
     }
 
-    const shouldPollAlways =
-      typeof document.documentElement?.classList?.contains === 'function' &&
-      document.documentElement.classList.contains('ios')
-
     const startRafBurst = () => {
       if (typeof window.requestAnimationFrame !== 'function') {
         updateViewport()
@@ -106,7 +101,7 @@ export function useVisualViewport() {
       const start = performance.now()
       const tick = () => {
         updateViewport()
-        if (performance.now() - start < 800) {
+        if (performance.now() - start < 1500) {
           rafId = window.requestAnimationFrame(tick)
         } else {
           rafId = null
@@ -135,19 +130,6 @@ export function useVisualViewport() {
       pollTimer = null
     }
 
-    const startBasePolling = () => {
-      if (!shouldPollAlways || basePollTimer !== null || typeof window.setInterval !== 'function') {
-        return
-      }
-      basePollTimer = window.setInterval(updateViewport, 250)
-    }
-
-    const stopBasePolling = () => {
-      if (basePollTimer === null || typeof window.clearInterval !== 'function') return
-      window.clearInterval(basePollTimer)
-      basePollTimer = null
-    }
-
     const syncActiveState = () => {
       if (isTextInputActive()) {
         startRafBurst()
@@ -173,7 +155,6 @@ export function useVisualViewport() {
     // Initial update
     updateViewport()
     syncActiveState()
-    startBasePolling()
 
     // Listen for viewport changes (keyboard show/hide, zoom, scroll)
     viewport.addEventListener('resize', updateViewport)
@@ -206,7 +187,6 @@ export function useVisualViewport() {
         window.cancelAnimationFrame(rafId)
       }
       stopPolling()
-      stopBasePolling()
       clearKeyboardInset(document)
     }
   }, [])
