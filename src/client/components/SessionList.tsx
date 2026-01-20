@@ -344,6 +344,11 @@ export default function SessionList({
     return sortedSessions.filter((session) => projectFilters.includes(session.projectPath))
   }, [sortedSessions, projectFilters])
 
+  const filterKey = useMemo(
+    () => (projectFilters.length === 0 ? 'all-projects' : projectFilters.join('|')),
+    [projectFilters]
+  )
+
   // Track sessions that became visible due to filter changes (for entry animation)
   const prevFilteredIdsRef = useRef<Set<string>>(new Set(filteredSessions.map((s) => s.id)))
   const [newlyFilteredInIds, setNewlyFilteredInIds] = useState<Set<string>>(new Set())
@@ -557,7 +562,7 @@ export default function SessionList({
               items={filteredSessions.filter((s) => !exitingIds.has(s.id)).map((s) => s.id)}
               strategy={verticalListSortingStrategy}
             >
-              <div>
+              <div key={filterKey}>
                 <AnimatePresence initial={false} mode="popLayout">
                   {filteredSessions.map((session, index) => {
                     const isTrulyNew = newlyActiveIds.has(session.id)
@@ -746,12 +751,17 @@ const SortableSessionItem = forwardRef<HTMLDivElement, SortableSessionItemProps>
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: session.id, disabled: isExiting })
+  } = useSortable({
+    id: session.id,
+    disabled: isExiting,
+    animateLayoutChanges: ({ isSorting, wasDragging }) => isSorting || wasDragging,
+  })
 
   // Don't apply sortable transforms for exiting items
+  const dndTransform = CSS.Transform.toString(transform)
+  const shouldApplyStyleTransform = Boolean(prefersReducedMotion && dndTransform)
   const style = isExiting ? undefined : {
-    transform: CSS.Transform.toString(transform),
-    transition,
+    ...(shouldApplyStyleTransform ? { transform: dndTransform, transition } : {}),
     zIndex: isDragging ? 10 : undefined,
     opacity: isDragging ? 0.9 : undefined,
   }
@@ -776,6 +786,11 @@ const SortableSessionItem = forwardRef<HTMLDivElement, SortableSessionItemProps>
       style={{ ...style, overflow: 'hidden' }}
       className="relative"
       layout={!prefersReducedMotion && !isDragging && !layoutAnimationsDisabled && !isExiting}
+      transformTemplate={(_, generatedTransform) => {
+        if (!dndTransform) return generatedTransform
+        if (!generatedTransform || generatedTransform === 'none') return dndTransform
+        return `${dndTransform} ${generatedTransform}`
+      }}
       initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.97 }}
       animate={
         prefersReducedMotion
