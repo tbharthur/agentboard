@@ -163,15 +163,18 @@ export function handleMatchWorkerRequest(
 
 function buildOrphanEntries(
   candidates: OrphanCandidate[],
-  entries: LogEntrySnapshot[],
+  _entries: LogEntrySnapshot[],
   minTokens: number
 ): LogEntrySnapshot[] {
-  const existingLogPaths = new Set(entries.map((entry) => entry.logPath))
+  // Note: We intentionally don't skip logs that are in `entries`.
+  // For orphan rematch, we want to match ALL orphan candidates to windows,
+  // even if their logs were scanned in the regular batch but not matched
+  // (e.g., because they didn't have new activity).
   const orphanEntries: LogEntrySnapshot[] = []
 
   for (const record of candidates) {
     const logPath = record.logFilePath
-    if (!logPath || existingLogPaths.has(logPath)) continue
+    if (!logPath) continue
 
     const agentType = record.agentType
     if (agentType === 'codex' && isCodexSubagent(logPath)) {
@@ -288,4 +291,6 @@ if (ctx) {
     const response = handleMatchWorkerRequest(payload)
     ctx.postMessage(response)
   }
+  // Signal that the worker is ready to receive messages
+  ctx.postMessage({ type: 'ready' })
 }

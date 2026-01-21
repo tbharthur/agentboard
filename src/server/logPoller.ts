@@ -36,7 +36,10 @@ interface PollStats {
 }
 
 interface MatchWorkerClient {
-  poll(request: Omit<MatchWorkerRequest, 'id'>): Promise<MatchWorkerResponse>
+  poll(
+    request: Omit<MatchWorkerRequest, 'id'>,
+    options?: { timeoutMs?: number }
+  ): Promise<MatchWorkerResponse>
   dispose(): void
 }
 
@@ -52,7 +55,9 @@ export class LogPoller {
   private rgThreads?: number
   private matchWorker: MatchWorkerClient | null
   private pollInFlight = false
-  private forceOrphanRematch = true
+  private orphanRematchPending = true
+  private orphanRematchInProgress = false
+  private orphanRematchPromise: Promise<void> | null = null
   private warnedWorkerDisabled = false
   private startupLastMessageBackfillPending = true
   // Cache of empty logs: logPath -> mtime when checked (re-check if mtime changes)
@@ -107,6 +112,139 @@ export class LogPoller {
       void this.pollOnce()
     }, safeInterval)
     void this.pollOnce()
+    // Start orphan rematch in background - doesn't block regular polling
+    if (this.orphanRematchPending && !this.orphanRematchInProgress) {
+      this.orphanRematchPromise = this.runOrphanRematchInBackground()
+    }
+  }
+
+  /** Wait for the background orphan rematch to complete (for testing) */
+  async waitForOrphanRematch(): Promise<void> {
+    if (this.orphanRematchPromise) {
+      await this.orphanRematchPromise
+    }
+  }
+
+  private async runOrphanRematchInBackground(): Promise<void> {
+    if (this.orphanRematchInProgress || !this.orphanRematchPending) {
+      return
+    }
+    if (!this.matchWorker) {
+      this.orphanRematchPending = false
+      logger.info('orphan_rematch_skip', { reason: 'match_worker_disabled' })
+      return
+    }
+    this.orphanRematchPending = false
+    this.orphanRematchInProgress = true
+
+    // Use the existing match worker for orphan rematch; skip if disabled.
+    const orphanWorker = this.matchWorker
+
+    try {
+      const windows = this.registry.getAll()
+      const logDirs = getLogSearchDirs()
+      const sessionRecords = [
+        ...this.db.getActiveSessions(),
+        ...this.db.getInactiveSessions(),
+      ]
+
+      // Build orphan candidates - sessions without active windows
+      const orphanCandidates: OrphanCandidate[] = []
+      for (const record of sessionRecords) {
+        if (record.currentWindow) continue
+        const logFilePath = record.logFilePath
+        if (!logFilePath) continue
+        orphanCandidates.push({
+          sessionId: record.sessionId,
+          logFilePath,
+          projectPath: record.projectPath ?? null,
+          agentType: record.agentType ?? null,
+          currentWindow: record.currentWindow ?? null,
+        })
+      }
+
+      if (orphanCandidates.length === 0) {
+        logger.info('orphan_rematch_skip', { reason: 'no_orphans' })
+        return
+      }
+
+      logger.info('orphan_rematch_start', { orphanCount: orphanCandidates.length })
+
+      // Run orphan rematch on dedicated worker - doesn't block regular polling
+      const sessions: SessionSnapshot[] = sessionRecords.map((session) => ({
+        sessionId: session.sessionId,
+        logFilePath: session.logFilePath,
+        currentWindow: session.currentWindow,
+        lastActivityAt: '', // Force re-check for orphan matching
+        lastUserMessage: session.lastUserMessage,
+      }))
+
+      // Use longer timeout for orphan rematch since it processes many files
+      const response = await orphanWorker.poll(
+        {
+          windows,
+          logDirs,
+          maxLogsPerPoll: 1, // We only care about orphan matching, not batch scanning
+          sessions,
+          knownSessions: [],
+          scrollbackLines: DEFAULT_SCROLLBACK_LINES,
+          minTokensForMatch: MIN_LOG_TOKENS_FOR_INSERT,
+          forceOrphanRematch: true,
+          orphanCandidates,
+          lastMessageCandidates: [],
+          search: {
+            rgThreads: this.rgThreads,
+          },
+        },
+        { timeoutMs: 120000 } // 2 minutes for orphan rematch
+      )
+
+      // Process orphan matches
+      const windowsByTmux = new Map(
+        windows.map((window) => [window.tmuxWindow, window])
+      )
+      let orphanMatches = 0
+      for (const match of response.orphanMatches ?? []) {
+        const window = windowsByTmux.get(match.tmuxWindow)
+        if (!window) continue
+
+        const existing = this.db.getSessionByLogPath(match.logPath)
+        if (existing && !existing.currentWindow) {
+          // Check if window is already claimed by another session
+          const claimed = this.db.getSessionByWindow(match.tmuxWindow)
+          if (claimed) {
+            logger.info('orphan_rematch_skipped_window_claimed', {
+              sessionId: existing.sessionId,
+              window: match.tmuxWindow,
+              claimedBySessionId: claimed.sessionId,
+            })
+            continue
+          }
+          this.db.updateSession(existing.sessionId, {
+            currentWindow: match.tmuxWindow,
+            displayName: window.name,
+          })
+          this.onSessionActivated?.(existing.sessionId, match.tmuxWindow)
+          logger.info('orphan_rematch_success', {
+            sessionId: existing.sessionId,
+            window: match.tmuxWindow,
+            displayName: window.name,
+          })
+          orphanMatches++
+        }
+      }
+
+      logger.info('orphan_rematch_complete', {
+        orphanCount: orphanCandidates.length,
+        matches: orphanMatches,
+      })
+    } catch (error) {
+      logger.warn('orphan_rematch_error', {
+        message: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      this.orphanRematchInProgress = false
+    }
   }
 
   stop(): void {
@@ -129,10 +267,6 @@ export class LogPoller {
       }
     }
     this.pollInFlight = true
-    const forceOrphanRematch = this.forceOrphanRematch
-    if (this.forceOrphanRematch) {
-      this.forceOrphanRematch = false
-    }
     const start = Date.now()
     let logsScanned = 0
     let newSessions = 0
@@ -175,13 +309,6 @@ export class LogPoller {
           projectPath: session.projectPath ?? null,
           agentType: session.agentType ?? null,
         }))
-      const matchSessions = forceOrphanRematch
-        ? sessions.map((session) =>
-            session.currentWindow
-              ? session
-              : { ...session, lastActivityAt: '' }
-          )
-        : sessions
       let exactWindowMatches = new Map<string, Session>()
       let entriesToMatch: LogEntrySnapshot[] = []
       let orphanEntries: LogEntrySnapshot[] = []
@@ -193,22 +320,7 @@ export class LogPoller {
       let matchLogCount = 0
       let matchSkipped = false
 
-      const orphanCandidates: OrphanCandidate[] = []
       const lastMessageCandidates: LastMessageCandidate[] = []
-      if (forceOrphanRematch) {
-        for (const record of sessionRecords) {
-          if (record.currentWindow) continue
-          const logFilePath = record.logFilePath
-          if (!logFilePath) continue
-          orphanCandidates.push({
-            sessionId: record.sessionId,
-            logFilePath,
-            projectPath: record.projectPath ?? null,
-            agentType: record.agentType ?? null,
-            currentWindow: record.currentWindow ?? null,
-          })
-        }
-      }
       if (this.startupLastMessageBackfillPending) {
         for (const record of sessionRecords) {
           if (!record.currentWindow) continue
@@ -236,9 +348,6 @@ export class LogPoller {
             message: 'Log polling requires match worker; skipping cycle',
           })
         }
-        if (forceOrphanRematch) {
-          this.forceOrphanRematch = true
-        }
         errors += 1
         matchSkipped = true
       } else {
@@ -249,12 +358,12 @@ export class LogPoller {
             maxLogsPerPoll: shouldBackfillLastMessage
               ? Math.max(this.maxLogsPerPoll, STARTUP_LAST_MESSAGE_BACKFILL_MAX)
               : this.maxLogsPerPoll,
-            sessions: matchSessions,
+            sessions,
             knownSessions,
             scrollbackLines: DEFAULT_SCROLLBACK_LINES,
             minTokensForMatch: MIN_LOG_TOKENS_FOR_INSERT,
-            forceOrphanRematch,
-            orphanCandidates,
+            forceOrphanRematch: false, // Orphan rematch runs in background separately
+            orphanCandidates: [],
             lastMessageCandidates,
             search: {
               rgThreads: this.rgThreads,
@@ -282,13 +391,7 @@ export class LogPoller {
             if (!window) continue
             exactWindowMatches.set(match.logPath, window)
           }
-          for (const match of response.orphanMatches ?? []) {
-            if (exactWindowMatches.has(match.logPath)) continue
-            const window = windowsByTmux.get(match.tmuxWindow)
-            if (!window) continue
-            exactWindowMatches.set(match.logPath, window)
-          }
-          entriesToMatch = getEntriesNeedingMatch(entries, matchSessions, {
+          entriesToMatch = getEntriesNeedingMatch(entries, sessions, {
             minTokens: MIN_LOG_TOKENS_FOR_INSERT,
           })
         } catch (error) {
@@ -296,9 +399,6 @@ export class LogPoller {
           logger.warn('log_match_worker_error', {
             message: error instanceof Error ? error.message : String(error),
           })
-          if (forceOrphanRematch) {
-            this.forceOrphanRematch = true
-          }
           matchSkipped = true
         }
       }

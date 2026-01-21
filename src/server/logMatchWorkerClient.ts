@@ -9,18 +9,25 @@ interface PendingRequest {
 }
 
 const DEFAULT_TIMEOUT_MS = 15000
+const READY_TIMEOUT_MS = 10000
 
 export class LogMatchWorkerClient {
   private worker: Worker | null = null
   private disposed = false
   private counter = 0
   private pending = new Map<string, PendingRequest>()
+  private readyPromise: Promise<void> | null = null
+  private readyResolve: (() => void) | null = null
+  private readyReject: ((error: Error) => void) | null = null
 
   constructor() {
     this.spawnWorker()
   }
 
-  async poll(request: Omit<MatchWorkerRequest, 'id'>): Promise<MatchWorkerResponse> {
+  async poll(
+    request: Omit<MatchWorkerRequest, 'id'>,
+    options?: { timeoutMs?: number }
+  ): Promise<MatchWorkerResponse> {
     if (this.disposed) {
       throw new Error('Log match worker is disposed')
     }
@@ -28,14 +35,23 @@ export class LogMatchWorkerClient {
       this.spawnWorker()
     }
 
+    // Wait for the worker to be ready before sending the first message
+    if (this.readyPromise) {
+      await this.readyPromise
+    }
+    if (this.disposed) {
+      throw new Error('Log match worker is disposed')
+    }
+
     const id = `${Date.now()}-${this.counter++}`
     const payload: MatchWorkerRequest = { ...request, id }
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
     return new Promise<MatchWorkerResponse>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.pending.delete(id)
         reject(new Error('Log match worker timed out'))
-      }, DEFAULT_TIMEOUT_MS)
+      }, timeoutMs)
 
       this.pending.set(id, { resolve, reject, timeoutId })
       this.worker?.postMessage(payload)
@@ -44,6 +60,12 @@ export class LogMatchWorkerClient {
 
   dispose(): void {
     this.disposed = true
+    if (this.readyReject) {
+      this.readyReject(new Error('Log match worker disposed'))
+      this.readyReject = null
+    }
+    this.readyResolve = null
+    this.readyPromise = null
     this.failAll(new Error('Log match worker disposed'))
     if (this.worker) {
       this.worker.terminate()
@@ -53,11 +75,39 @@ export class LogMatchWorkerClient {
 
   private spawnWorker(): void {
     if (this.disposed) return
+
+    // Set up ready promise before creating the worker
+    this.readyPromise = new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve
+      this.readyReject = reject
+      // Timeout if worker doesn't become ready
+      setTimeout(() => {
+        if (this.readyResolve) {
+          this.readyResolve = null
+          this.readyReject = null
+          reject(new Error('Log match worker failed to initialize'))
+        }
+      }, READY_TIMEOUT_MS)
+    }).catch(() => {
+      // Swallow the error - poll() will handle the timeout
+    })
+
     const worker = new Worker(new URL('./logMatchWorker.ts', import.meta.url).href, {
       type: 'module',
     })
     worker.onmessage = (event) => {
-      this.handleMessage(event.data as MatchWorkerResponse)
+      const data = event.data as MatchWorkerResponse | { type: 'ready' }
+      // Handle ready signal from worker
+      if (data && data.type === 'ready') {
+        if (this.readyResolve) {
+          this.readyResolve()
+          this.readyResolve = null
+          this.readyReject = null
+          this.readyPromise = null
+        }
+        return
+      }
+      this.handleMessage(data as MatchWorkerResponse)
     }
     worker.onerror = (event) => {
       const message = event instanceof ErrorEvent ? event.message : 'Log match worker error'

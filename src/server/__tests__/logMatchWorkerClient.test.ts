@@ -3,7 +3,9 @@ import type { MatchWorkerResponse } from '../logMatchWorkerClient'
 
 class WorkerMock {
   static instances: WorkerMock[] = []
-  onmessage: ((event: MessageEvent) => void) | null = null
+  static nextReady = true
+  private _onmessage: ((event: MessageEvent) => void) | null = null
+  private emitReady: boolean
   onerror: ((event: ErrorEvent) => void) | null = null
   onmessageerror: (() => void) | null = null
   lastMessage: unknown = null
@@ -11,6 +13,22 @@ class WorkerMock {
 
   constructor(public url: string, public options?: WorkerOptions) {
     WorkerMock.instances.push(this)
+    this.emitReady = WorkerMock.nextReady
+    WorkerMock.nextReady = true
+  }
+
+  get onmessage() {
+    return this._onmessage
+  }
+
+  set onmessage(handler: ((event: MessageEvent) => void) | null) {
+    this._onmessage = handler
+    // Emit "ready" message when handler is set, like the real worker does
+    if (handler && this.emitReady) {
+      queueMicrotask(() => {
+        handler({ data: { type: 'ready' } } as MessageEvent)
+      })
+    }
   }
 
   postMessage(payload: unknown) {
@@ -47,6 +65,17 @@ afterAll(() => {
   globalThis.Worker = originalWorker
 })
 
+// Helper to wait for worker to receive message
+async function waitForMessage(worker: WorkerMock, maxWait = 100): Promise<{ id: string }> {
+  const start = Date.now()
+  while (!worker.lastMessage && Date.now() - start < maxWait) {
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+  const payload = worker.lastMessage as { id: string } | null
+  if (!payload?.id) throw new Error('Missing request id')
+  return payload
+}
+
 describe('LogMatchWorkerClient', () => {
   test('poll resolves when worker responds', async () => {
     const client = new LogMatchWorkerClient()
@@ -60,9 +89,7 @@ describe('LogMatchWorkerClient', () => {
       scrollbackLines: 10,
     })
 
-    const payload = worker.lastMessage as { id: string } | null
-    if (!payload?.id) throw new Error('Missing request id')
-
+    const payload = await waitForMessage(worker)
     worker.emitMessage({ id: payload.id, type: 'result', entries: [] })
 
     const result = await promise
@@ -82,9 +109,7 @@ describe('LogMatchWorkerClient', () => {
       scrollbackLines: 10,
     })
 
-    const payload = worker.lastMessage as { id: string } | null
-    if (!payload?.id) throw new Error('Missing request id')
-
+    const payload = await waitForMessage(worker)
     worker.emitMessage({ id: payload.id, type: 'error', error: 'boom' })
 
     await expect(promise).rejects.toThrow('boom')
@@ -102,10 +127,28 @@ describe('LogMatchWorkerClient', () => {
       scrollbackLines: 10,
     })
 
+    // Wait for message to be posted, then dispose
+    await waitForMessage(worker)
     client.dispose()
 
     await expect(promise).rejects.toThrow('Log match worker disposed')
     expect(worker.terminated).toBe(true)
+  })
+
+  test('dispose during readiness wait rejects poll immediately', async () => {
+    WorkerMock.nextReady = false
+    const client = new LogMatchWorkerClient()
+
+    const promise = client.poll({
+      windows: [],
+      maxLogsPerPoll: 1,
+      sessions: [],
+      scrollbackLines: 10,
+    })
+
+    client.dispose()
+
+    await expect(promise).rejects.toThrow('Log match worker is disposed')
   })
 
   test('worker errors reject pending and restart worker', async () => {
@@ -121,6 +164,8 @@ describe('LogMatchWorkerClient', () => {
       scrollbackLines: 10,
     })
 
+    // Wait for message to be posted, then emit error
+    await waitForMessage(worker)
     worker.emitError('broken')
 
     await expect(promise).rejects.toThrow('Log match worker error')
@@ -141,6 +186,8 @@ describe('LogMatchWorkerClient', () => {
       scrollbackLines: 10,
     })
 
+    // Wait for message to be posted, then emit error
+    await waitForMessage(worker)
     worker.emitMessageError()
 
     await expect(promise).rejects.toThrow('Log match worker message error')

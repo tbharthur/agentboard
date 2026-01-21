@@ -148,7 +148,8 @@ function buildUserLogEntry(message: string, extra: Record<string, unknown> = {})
 
 class InlineMatchWorkerClient {
   async poll(
-    request: Omit<MatchWorkerRequest, 'id'>
+    request: Omit<MatchWorkerRequest, 'id'>,
+    _options?: { timeoutMs?: number }
   ): Promise<MatchWorkerResponse> {
     const response = handleMatchWorkerRequest({ ...request, id: 'test' })
     if (response.type === 'error') {
@@ -434,11 +435,18 @@ describe('LogPoller', () => {
     const poller = new LogPoller(db, registry, {
       matchWorkerClient: new InlineMatchWorkerClient(),
     })
-    await poller.pollOnce()
+    // Start poller which triggers first poll and background orphan rematch
+    poller.start(5000)
+    // Wait for initial poll to complete first (avoids worker contention)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    // Wait for orphan rematch to complete
+    await poller.waitForOrphanRematch()
 
     const updated = db.getSessionById('claude-session-orphan')
     expect(updated?.currentWindow).toBe(baseSession.tmuxWindow)
+    expect(updated?.displayName).toBe(baseSession.name)
 
+    poller.stop()
     db.close()
   })
 })
