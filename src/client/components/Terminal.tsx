@@ -149,7 +149,7 @@ export default function Terminal({
   }, [])
 
   useEffect(() => {
-    if (!isMobileLayout && isDrawerOpen) {
+    if (!isMobileLayout && !isiOS && isDrawerOpen) {
       setIsDrawerOpen(false)
     }
   }, [isDrawerOpen, isMobileLayout])
