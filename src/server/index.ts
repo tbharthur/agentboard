@@ -1019,6 +1019,19 @@ function resurrectPinnedSessions() {
 
     const resumeTemplate =
       record.agentType === 'claude' ? config.claudeResumeCmd : config.codexResumeCmd
+
+    // Validate template contains {sessionId} placeholder
+    if (!resumeTemplate.includes('{sessionId}')) {
+      const errorMsg = `Resume command template missing {sessionId} placeholder: ${resumeTemplate}`
+      db.updateSession(record.sessionId, { isPinned: false, lastResumeError: errorMsg })
+      logger.error('resurrect_pinned_session_invalid_template', {
+        sessionId: record.sessionId,
+        displayName: record.displayName,
+        template: resumeTemplate,
+      })
+      continue
+    }
+
     const command = resumeTemplate.replace('{sessionId}', record.sessionId)
     const projectPath =
       record.projectPath ||
@@ -1088,6 +1101,17 @@ function handleSessionResume(
 
   const resumeTemplate =
     record.agentType === 'claude' ? config.claudeResumeCmd : config.codexResumeCmd
+
+  // Validate template contains {sessionId} placeholder
+  if (!resumeTemplate.includes('{sessionId}')) {
+    const error: ResumeError = {
+      code: 'RESUME_FAILED',
+      message: `Resume command template missing {sessionId} placeholder`,
+    }
+    send(ws, { type: 'session-resume-result', sessionId, ok: false, error })
+    return
+  }
+
   const command = resumeTemplate.replace('{sessionId}', sessionId)
   const projectPath =
     record.projectPath ||
@@ -1105,6 +1129,7 @@ function handleSessionResume(
     db.updateSession(sessionId, {
       currentWindow: created.tmuxWindow,
       displayName: created.name,
+      lastResumeError: null, // Clear any previous error on success
     })
     // Add session to registry immediately so terminal can attach
     // (async refresh will update with any additional data later)

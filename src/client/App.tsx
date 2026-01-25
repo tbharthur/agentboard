@@ -414,6 +414,7 @@ export default function App() {
         onRenameSession={handleRenameSession}
         onOpenSettings={handleOpenSettings}
         onResumeSession={handleResumeSession}
+        onSetPinned={handleSetPinned}
         inactiveSessions={agentSessions.inactive}
         loading={!hasLoaded}
         error={connectionError || serverError}

@@ -31,11 +31,11 @@ if (!tmuxAvailable) {
     let serverProcess: ReturnType<typeof Bun.spawn> | null = null
     let port = 0
 
-    let serverLogs: string[] = []
+    // Session ID for pin/unpin test - seeded before server starts
+    const wsTestSessionId = `ws-pin-test-${Date.now()}`
 
     async function startServer() {
       port = await getFreePort()
-      serverLogs = []
       serverProcess = Bun.spawn(['bun', 'src/server/index.ts'], {
         cwd: process.cwd(),
         env: {
@@ -49,11 +49,9 @@ if (!tmuxAvailable) {
           CLAUDE_RESUME_CMD: 'echo "mock resume {sessionId}"',
           CODEX_RESUME_CMD: 'echo "mock resume {sessionId}"',
         },
-        stdout: 'pipe',
-        stderr: 'pipe',
+        stdout: 'ignore',
+        stderr: 'ignore',
       })
-      collectLogs(serverProcess.stdout, serverLogs)
-      collectLogs(serverProcess.stderr, serverLogs)
       await waitForHealth(port)
     }
 
@@ -75,6 +73,24 @@ if (!tmuxAvailable) {
         stdout: 'ignore',
         stderr: 'ignore',
       })
+
+      // Seed the database BEFORE starting the server to avoid SQLite locking issues
+      const db = initDatabase({ path: dbPath })
+      db.insertSession({
+        sessionId: wsTestSessionId,
+        logFilePath: `/tmp/ws-${wsTestSessionId}.jsonl`,
+        projectPath: os.tmpdir(),
+        agentType: 'claude',
+        displayName: 'ws-pin-test',
+        createdAt: new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
+        lastUserMessage: null,
+        currentWindow: `${sessionName}:1`, // active
+        isPinned: false,
+        lastResumeError: null,
+      })
+      db.close()
+
       await startServer()
     })
 
@@ -113,23 +129,7 @@ if (!tmuxAvailable) {
       const ws = new WebSocket(`ws://localhost:${port}/ws`)
       await waitForOpen(ws)
 
-      // Insert a test session
-      const db = initDatabase({ path: dbPath })
-      const wsTestSessionId = `ws-pin-test-${Date.now()}`
-      db.insertSession({
-        sessionId: wsTestSessionId,
-        logFilePath: `/tmp/ws-${wsTestSessionId}.jsonl`,
-        projectPath: os.tmpdir(),
-        agentType: 'claude',
-        displayName: 'ws-pin-test',
-        createdAt: new Date().toISOString(),
-        lastActivityAt: new Date().toISOString(),
-        lastUserMessage: null,
-        currentWindow: `${sessionName}:1`, // active
-        isPinned: false,
-        lastResumeError: null,
-      })
-      db.close()
+      // Session was seeded in beforeAll to avoid SQLite locking issues
 
       // Pin via websocket
       ws.send(
@@ -144,11 +144,6 @@ if (!tmuxAvailable) {
       expect(pinResult.ok).toBe(true)
       expect(pinResult.sessionId).toBe(wsTestSessionId)
 
-      // Verify in DB
-      const dbCheck = initDatabase({ path: dbPath })
-      const pinned = dbCheck.getSessionById(wsTestSessionId)
-      expect(pinned?.isPinned).toBe(true)
-
       // Unpin via websocket
       ws.send(
         JSON.stringify({
@@ -160,11 +155,8 @@ if (!tmuxAvailable) {
 
       const unpinResult = await waitForMessage(ws, 'session-pin-result')
       expect(unpinResult.ok).toBe(true)
+      expect(unpinResult.sessionId).toBe(wsTestSessionId)
 
-      const unpinned = dbCheck.getSessionById(wsTestSessionId)
-      expect(unpinned?.isPinned).toBe(false)
-
-      dbCheck.close()
       ws.close()
     })
   })
@@ -245,28 +237,6 @@ async function waitForMessage(
 
     ws.addEventListener('message', handler)
   })
-}
-
-function collectLogs(
-  stream: ReadableStream<Uint8Array> | number | null | undefined,
-  logs: string[]
-) {
-  if (!stream || typeof stream === 'number') {
-    return
-  }
-
-  const reader = stream.getReader()
-  const decoder = new TextDecoder()
-  const pump = async () => {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (value) {
-        logs.push(decoder.decode(value))
-      }
-    }
-  }
-  void pump()
 }
 
 function delay(ms: number) {

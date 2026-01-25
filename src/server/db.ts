@@ -93,8 +93,8 @@ export function initDatabase(options: { path?: string } = {}): SessionDatabase {
 
   const insertStmt = db.prepare(
     `INSERT INTO agent_sessions
-      (session_id, log_file_path, project_path, agent_type, display_name, created_at, last_activity_at, last_user_message, current_window, is_pinned)
-     VALUES ($sessionId, $logFilePath, $projectPath, $agentType, $displayName, $createdAt, $lastActivityAt, $lastUserMessage, $currentWindow, $isPinned)`
+      (session_id, log_file_path, project_path, agent_type, display_name, created_at, last_activity_at, last_user_message, current_window, is_pinned, last_resume_error)
+     VALUES ($sessionId, $logFilePath, $projectPath, $agentType, $displayName, $createdAt, $lastActivityAt, $lastUserMessage, $currentWindow, $isPinned, $lastResumeError)`
   )
 
   const selectBySessionId = db.prepare(
@@ -140,6 +140,7 @@ export function initDatabase(options: { path?: string } = {}): SessionDatabase {
         $lastUserMessage: session.lastUserMessage,
         $currentWindow: session.currentWindow,
         $isPinned: session.isPinned ? 1 : 0,
+        $lastResumeError: session.lastResumeError,
       })
       const row = selectBySessionId.get({ $sessionId: session.sessionId }) as
         | Record<string, unknown>
@@ -180,7 +181,12 @@ export function initDatabase(options: { path?: string } = {}): SessionDatabase {
         const field = fieldMap[key]
         if (!field) continue
         fields.push(field)
-        params[`$${field}`] = value as string | number | null
+        // Normalize isPinned to 0/1 for SQLite
+        if (key === 'isPinned') {
+          params[`$${field}`] = value ? 1 : 0
+        } else {
+          params[`$${field}`] = value as string | number | null
+        }
       }
 
       if (fields.length === 0) {
