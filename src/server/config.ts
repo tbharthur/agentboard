@@ -37,6 +37,21 @@ const workingGracePeriodMs = Number.isFinite(workingGracePeriodMsRaw)
   ? workingGracePeriodMsRaw
   : 4000
 
+// Max age for inactive sessions shown in UI (hours)
+// Sessions older than this are not sent to frontend or processed for orphan rematch
+const inactiveSessionMaxAgeHoursRaw = Number(process.env.AGENTBOARD_INACTIVE_MAX_AGE_HOURS)
+const inactiveSessionMaxAgeHours = Number.isFinite(inactiveSessionMaxAgeHoursRaw)
+  ? inactiveSessionMaxAgeHoursRaw
+  : 24
+
+// Exclude sessions from certain project directories (comma-separated paths)
+// Sessions with projectPath starting with any of these will be filtered out
+// Example: AGENTBOARD_EXCLUDE_PROJECTS="/,/tmp" to exclude root and /tmp sessions
+const excludeProjects = (process.env.AGENTBOARD_EXCLUDE_PROJECTS || '')
+  .split(',')
+  .map((p) => p.trim())
+  .filter(Boolean)
+
 const claudeConfigDir =
   process.env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude')
 const codexHomeDir =
@@ -70,4 +85,6 @@ export const config = {
   codexResumeCmd: process.env.CODEX_RESUME_CMD || 'codex resume {sessionId}',
   enterRefreshDelayMs,
   workingGracePeriodMs,
+  inactiveSessionMaxAgeHours,
+  excludeProjects,
 }
