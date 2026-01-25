@@ -5,6 +5,7 @@ import SessionList from './components/SessionList'
 import Terminal from './components/Terminal'
 import NewSessionModal from './components/NewSessionModal'
 import SettingsModal from './components/SettingsModal'
+import { ToastViewport, toastManager } from './components/Toast'
 import { useSessionStore } from './stores/sessionStore'
 import {
   useSettingsStore,
@@ -190,6 +191,14 @@ export default function App() {
           setServerError(message.error)
           window.setTimeout(() => setServerError(null), 6000)
         }
+      }
+      if (message.type === 'session-resurrection-failed') {
+        toastManager.add({
+          title: 'Session resurrection failed',
+          description: `"${message.displayName}" could not be resumed: ${message.error}`,
+          type: 'error',
+          timeout: 8000,
+        })
       }
     })
 
@@ -437,6 +446,7 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
       />
 
+      <ToastViewport />
     </div>
   )
 }

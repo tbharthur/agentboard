@@ -979,7 +979,10 @@ function handleSessionPin(
     return
   }
 
-  const updated = db.setPinned(sessionId, isPinned)
+  // When pinning, also clear any previous resume error
+  const updated = isPinned
+    ? db.updateSession(sessionId, { isPinned: true, lastResumeError: null })
+    : db.setPinned(sessionId, false)
   if (!updated) {
     send(ws, { type: 'session-pin-result', sessionId, ok: false, error: 'Failed to update pin state' })
     return
@@ -1010,6 +1013,12 @@ function resurrectPinnedSessions() {
     if (!isValidSessionId(record.sessionId)) {
       const errorMsg = 'Invalid session id format'
       db.updateSession(record.sessionId, { isPinned: false, lastResumeError: errorMsg })
+      broadcast({
+        type: 'session-resurrection-failed',
+        sessionId: record.sessionId,
+        displayName: record.displayName,
+        error: errorMsg,
+      })
       logger.error('resurrect_pinned_session_invalid_id', {
         sessionId: record.sessionId,
         displayName: record.displayName,
@@ -1024,6 +1033,12 @@ function resurrectPinnedSessions() {
     if (!resumeTemplate.includes('{sessionId}')) {
       const errorMsg = `Resume command template missing {sessionId} placeholder: ${resumeTemplate}`
       db.updateSession(record.sessionId, { isPinned: false, lastResumeError: errorMsg })
+      broadcast({
+        type: 'session-resurrection-failed',
+        sessionId: record.sessionId,
+        displayName: record.displayName,
+        error: errorMsg,
+      })
       logger.error('resurrect_pinned_session_invalid_template', {
         sessionId: record.sessionId,
         displayName: record.displayName,
@@ -1060,6 +1075,12 @@ function resurrectPinnedSessions() {
       // Resurrection failed - unpin the session and persist error
       const errorMsg = error instanceof Error ? error.message : String(error)
       db.updateSession(record.sessionId, { isPinned: false, lastResumeError: errorMsg })
+      broadcast({
+        type: 'session-resurrection-failed',
+        sessionId: record.sessionId,
+        displayName: record.displayName,
+        error: errorMsg,
+      })
       logger.error('resurrect_pinned_session_failed', {
         sessionId: record.sessionId,
         displayName: record.displayName,

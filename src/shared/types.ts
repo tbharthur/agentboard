@@ -69,6 +69,7 @@ export type ServerMessage =
   | { type: 'session-activated'; session: AgentSession; window: string }
   | { type: 'session-resume-result'; sessionId: string; ok: boolean; session?: Session; error?: ResumeError }
   | { type: 'session-pin-result'; sessionId: string; ok: boolean; error?: string }
+  | { type: 'session-resurrection-failed'; sessionId: string; displayName: string; error: string }
   | { type: 'terminal-output'; sessionId: string; data: string }
   | {
       type: 'terminal-error'
