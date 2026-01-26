@@ -7,7 +7,7 @@ import { ClipboardAddon, type ClipboardSelectionType, type IClipboardProvider } 
 import { SearchAddon } from '@xterm/addon-search'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { ProgressAddon } from '@xterm/addon-progress'
-import type { ServerMessage } from '@shared/types'
+import type { SendClientMessage, SubscribeServerMessage } from '@shared/types'
 
 // URL regex that matches standard URLs and IP:port patterns
 const URL_REGEX = /https?:\/\/[^\s"'<>]+|\b(?:localhost|\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}(?:\/[^\s"'<>]*)?\b/
@@ -106,8 +106,8 @@ export function forceTextPresentation(data: string): string {
 interface UseTerminalOptions {
   sessionId: string | null
   tmuxTarget: string | null
-  sendMessage: (message: any) => void
-  subscribe: (listener: (message: ServerMessage) => void) => () => void
+  sendMessage: SendClientMessage
+  subscribe: SubscribeServerMessage
   theme: ITheme
   fontSize: number
   lineHeight: number

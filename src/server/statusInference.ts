@@ -1,6 +1,7 @@
 // statusInference.ts - Shared status inference logic
 // Used by both SessionManager and sessionRefreshWorker
 
+import type { SessionStatus } from '../shared/types'
 import {
   stripAnsi,
   TMUX_DECORATIVE_LINE_PATTERN,
@@ -118,4 +119,93 @@ export function isMeaningfulResizeChange(
   }
   const changed = stats.ratioMin < 0.9
   return { changed, ...stats }
+}
+
+// Shared types for session status inference
+export interface PaneSnapshot {
+  content: string
+  width: number
+  height: number
+}
+
+export interface PaneCacheState {
+  content: string
+  width: number
+  height: number
+  lastChanged: number
+  hasEverChanged: boolean
+}
+
+export interface InferSessionStatusArgs {
+  prev: PaneCacheState | undefined
+  next: PaneSnapshot
+  now: number
+  workingGracePeriodMs: number
+}
+
+export interface InferSessionStatusResult {
+  status: SessionStatus
+  lastChanged: number
+  nextCache: PaneCacheState
+}
+
+/**
+ * Shared, pure function for inferring session status from pane content.
+ * Used by both SessionManager (main thread) and sessionRefreshWorker.
+ */
+export function inferSessionStatus(args: InferSessionStatusArgs): InferSessionStatusResult {
+  const { prev, next, now, workingGracePeriodMs } = args
+  const { content, width, height } = next
+
+  // Determine if content has meaningfully changed
+  let contentChanged = false
+  if (prev !== undefined) {
+    const dimensionsChanged = prev.width !== width || prev.height !== height
+    if (dimensionsChanged) {
+      const oldNormalized = normalizeContent(prev.content)
+      const newNormalized = normalizeContent(content)
+      const resizeStats = isMeaningfulResizeChange(oldNormalized, newNormalized)
+      contentChanged = resizeStats.changed
+    } else {
+      contentChanged = prev.content !== content
+    }
+  }
+
+  const hasEverChanged = contentChanged || prev?.hasEverChanged === true
+  const lastChanged = contentChanged ? now : (prev?.lastChanged ?? now)
+
+  // Build next cache state
+  const nextCache: PaneCacheState = {
+    content,
+    width,
+    height,
+    lastChanged,
+    hasEverChanged,
+  }
+
+  const hasPermissionPrompt = detectsPermissionPrompt(content)
+
+  // If no previous content, assume waiting (just started monitoring)
+  if (prev === undefined && !hasPermissionPrompt) {
+    return { status: 'waiting', lastChanged, nextCache }
+  }
+
+  // Working takes precedence over permission prompts
+  if (contentChanged) {
+    return { status: 'working', lastChanged, nextCache }
+  }
+
+  if (hasPermissionPrompt) {
+    return { status: 'permission', lastChanged, nextCache }
+  }
+
+  // Grace period: stay "working" if content changed recently
+  // This prevents status flicker during Claude's micro-pauses
+  const timeSinceLastChange = now - lastChanged
+  if (hasEverChanged && timeSinceLastChange < workingGracePeriodMs) {
+    return { status: 'working', lastChanged, nextCache }
+  }
+
+  // Content unchanged and grace period expired
+  return { status: 'waiting', lastChanged, nextCache }
 }

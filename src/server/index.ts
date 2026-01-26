@@ -35,6 +35,11 @@ import {
   setForceWorkingUntil,
   applyForceWorkingOverrides,
 } from './forceWorkingStatus'
+import {
+  MAX_FIELD_LENGTH,
+  isValidSessionId,
+  isValidTmuxTarget,
+} from './validators'
 
 function checkPortAvailable(port: number): void {
   let result: ReturnType<typeof Bun.spawnSync>
@@ -148,11 +153,7 @@ function pruneOrphanedWsSessions(): void {
   }
 }
 
-const MAX_FIELD_LENGTH = 4096
 const MAX_DIRECTORY_ENTRIES = 200
-const SESSION_ID_PATTERN = /^[A-Za-z0-9_.:@-]+$/
-const TMUX_TARGET_PATTERN =
-  /^(?:[A-Za-z0-9_.-]+:)?(?:@[0-9]+|[A-Za-z0-9_.-]+)$/
 
 function createConnectionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -527,7 +528,7 @@ app.get('/api/sessions', (c) => c.json(registry.getAll()))
 
 app.get('/api/session-preview/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId')
-  if (!sessionId || sessionId.length > MAX_FIELD_LENGTH || !SESSION_ID_PATTERN.test(sessionId)) {
+  if (!isValidSessionId(sessionId)) {
     return c.json({ error: 'Invalid session id' }, 400)
   }
 
@@ -1484,16 +1485,3 @@ function handleTerminalError(
   sendTerminalError(ws, sessionId, fallbackCode, message, true)
 }
 
-function isValidSessionId(sessionId: string): boolean {
-  if (!sessionId || sessionId.length > MAX_FIELD_LENGTH) {
-    return false
-  }
-  return SESSION_ID_PATTERN.test(sessionId)
-}
-
-function isValidTmuxTarget(target: string): boolean {
-  if (!target || target.length > MAX_FIELD_LENGTH) {
-    return false
-  }
-  return TMUX_TARGET_PATTERN.test(target)
-}

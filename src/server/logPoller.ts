@@ -27,6 +27,56 @@ const STARTUP_LAST_MESSAGE_BACKFILL_MAX = 100
 const MIN_LOG_TOKENS_FOR_INSERT = 1
 const REMATCH_COOLDOWN_MS = 60 * 1000 // 1 minute between re-match attempts
 
+// Type for session records from the database
+interface SessionRecord {
+  sessionId: string
+  logFilePath: string | null
+  projectPath: string | null
+  agentType: string | null
+  displayName: string
+  createdAt: string
+  lastActivityAt: string
+  lastUserMessage: string | null
+  currentWindow: string | null
+  isPinned: boolean
+  lastResumeError: string | null
+}
+
+// Fields that applyLogEntryToExistingRecord may update
+type SessionUpdate = Pick<SessionRecord, 'lastActivityAt' | 'lastUserMessage'>
+
+/**
+ * Computes the update object for an existing session record based on a log entry.
+ * Shared logic between the "existing by logPath" and "existing by sessionId" branches.
+ */
+function applyLogEntryToExistingRecord(
+  record: SessionRecord,
+  entry: LogEntrySnapshot,
+  opts: { isLastUserMessageLocked: boolean }
+): Partial<SessionUpdate> | null {
+  const hasActivity = entry.mtime > Date.parse(record.lastActivityAt)
+  const update: Partial<SessionUpdate> = {}
+
+  if (hasActivity) {
+    update.lastActivityAt = new Date(entry.mtime).toISOString()
+  }
+
+  if (entry.lastUserMessage && !isToolNotificationText(entry.lastUserMessage)) {
+    // Skip if Enter-key capture recently set a value (prevents stale log overwrites)
+    if (!opts.isLastUserMessageLocked) {
+      const shouldReplace =
+        !record.lastUserMessage ||
+        isToolNotificationText(record.lastUserMessage) ||
+        (hasActivity && entry.lastUserMessage !== record.lastUserMessage)
+      if (shouldReplace) {
+        update.lastUserMessage = entry.lastUserMessage
+      }
+    }
+  }
+
+  return Object.keys(update).length > 0 ? update : null
+}
+
 interface PollStats {
   logsScanned: number
   newSessions: number
@@ -502,24 +552,9 @@ export class LogPoller {
           const existing = this.db.getSessionByLogPath(entry.logPath)
           if (existing) {
             const hasActivity = entry.mtime > Date.parse(existing.lastActivityAt)
-            const update: Partial<typeof existing> = {}
-            if (hasActivity) {
-              update.lastActivityAt = new Date(entry.mtime).toISOString()
-            }
-            if (entry.lastUserMessage && !isToolNotificationText(entry.lastUserMessage)) {
-              // Skip if Enter-key capture recently set a value (prevents stale log overwrites)
-              const isLocked = existing.currentWindow && this.isLastUserMessageLocked?.(existing.currentWindow)
-              if (!isLocked) {
-                const shouldReplace =
-                  !existing.lastUserMessage ||
-                  isToolNotificationText(existing.lastUserMessage) ||
-                  (hasActivity && entry.lastUserMessage !== existing.lastUserMessage)
-                if (shouldReplace) {
-                  update.lastUserMessage = entry.lastUserMessage
-                }
-              }
-            }
-            if (Object.keys(update).length > 0) {
+            const isLocked = Boolean(existing.currentWindow && this.isLastUserMessageLocked?.(existing.currentWindow))
+            const update = applyLogEntryToExistingRecord(existing, entry, { isLastUserMessageLocked: isLocked })
+            if (update) {
               this.db.updateSession(existing.sessionId, update)
             }
             const shouldAttemptRematch =
@@ -583,26 +618,10 @@ export class LogPoller {
           const existingById = this.db.getSessionById(sessionId)
           if (existingById) {
             const hasActivity = entry.mtime > Date.parse(existingById.lastActivityAt)
-            const update: Partial<typeof existingById> = {}
-            if (hasActivity) {
-              update.lastActivityAt = lastActivityAt
-            }
-            if (entry.lastUserMessage && !isToolNotificationText(entry.lastUserMessage)) {
-              // Skip if Enter-key capture recently set a value (prevents stale log overwrites)
-              const isLocked = existingById.currentWindow && this.isLastUserMessageLocked?.(existingById.currentWindow)
-              if (!isLocked) {
-                const shouldReplace =
-                  !existingById.lastUserMessage ||
-                  isToolNotificationText(existingById.lastUserMessage) ||
-                  (hasActivity &&
-                    entry.lastUserMessage !== existingById.lastUserMessage)
-                if (shouldReplace) {
-                  update.lastUserMessage = entry.lastUserMessage
-                }
-              }
-            }
-            if (Object.keys(update).length > 0) {
-              this.db.updateSession(sessionId, update)
+            const isLocked = Boolean(existingById.currentWindow && this.isLastUserMessageLocked?.(existingById.currentWindow))
+            const updateById = applyLogEntryToExistingRecord(existingById, entry, { isLastUserMessageLocked: isLocked })
+            if (updateById) {
+              this.db.updateSession(sessionId, updateById)
             }
 
             // Re-attempt matching for orphaned sessions (no currentWindow)

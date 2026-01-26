@@ -86,6 +86,26 @@ function triggerHaptic() {
   }
 }
 
+/**
+ * Applies Ctrl modifier to a single character input.
+ * Converts A-Z to Ctrl+A through Ctrl+Z (0x01-0x1A).
+ * Other characters pass through unchanged.
+ */
+function applyCtrlModifier(
+  input: string,
+  ctrlActive: boolean
+): { output: string; consumeCtrl: boolean } {
+  if (!ctrlActive || input.length !== 1) {
+    return { output: input, consumeCtrl: false }
+  }
+  const code = input.toUpperCase().charCodeAt(0)
+  if (code >= 65 && code <= 90) {
+    return { output: String.fromCharCode(code - 64), consumeCtrl: true }
+  }
+  // Non-letter characters pass through unchanged but consume ctrl
+  return { output: input, consumeCtrl: true }
+}
+
 const statusDot: Record<Session['status'], string> = {
   working: 'bg-working',
   waiting: 'bg-waiting',
@@ -148,21 +168,12 @@ export default function TerminalControls({
     if (!ctrlActive || disabled || typeof document === 'undefined') return
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only intercept single character keys
-      if (e.key.length === 1) {
+      const { output, consumeCtrl } = applyCtrlModifier(e.key, true)
+      if (consumeCtrl) {
         e.preventDefault()
         e.stopPropagation()
-        const code = e.key.toUpperCase().charCodeAt(0)
-        let ctrlChar: string
-        // Convert A-Z to Ctrl+A through Ctrl+Z (0x01-0x1A)
-        if (code >= 65 && code <= 90) {
-          ctrlChar = String.fromCharCode(code - 64)
-        } else {
-          // For other characters, send with ctrl modifier via escape sequence
-          ctrlChar = e.key
-        }
         triggerHaptic()
-        onSendKey(ctrlChar)
+        onSendKey(output)
         setCtrlActive(false)
       }
     }
@@ -220,18 +231,12 @@ export default function TerminalControls({
     const wasKeyboardVisible = isKeyboardVisible?.() ?? false
     triggerHaptic()
 
-    // Apply Ctrl modifier if active (convert letter to control character)
-    let keyToSend = key
-    if (ctrlActive && key.length === 1) {
-      const code = key.toUpperCase().charCodeAt(0)
-      // Convert A-Z to Ctrl+A through Ctrl+Z (0x01-0x1A)
-      if (code >= 65 && code <= 90) {
-        keyToSend = String.fromCharCode(code - 64)
-      }
+    const { output, consumeCtrl } = applyCtrlModifier(key, ctrlActive)
+    if (consumeCtrl) {
       setCtrlActive(false)
     }
 
-    onSendKey(keyToSend)
+    onSendKey(output)
     // Only refocus if keyboard was already visible (don't bring it up if it wasn't)
     if (wasKeyboardVisible) {
       onRefocus?.()
@@ -246,15 +251,11 @@ export default function TerminalControls({
 
   // Wrapper for child components (NumPad, DPad) to apply Ctrl modifier
   const handleSendKeyWithCtrl = (key: string) => {
-    let keyToSend = key
-    if (ctrlActive && key.length === 1) {
-      const code = key.toUpperCase().charCodeAt(0)
-      if (code >= 65 && code <= 90) {
-        keyToSend = String.fromCharCode(code - 64)
-      }
+    const { output, consumeCtrl } = applyCtrlModifier(key, ctrlActive)
+    if (consumeCtrl) {
       setCtrlActive(false)
     }
-    onSendKey(keyToSend)
+    onSendKey(output)
   }
 
   const handlePasteButtonClick = async () => {

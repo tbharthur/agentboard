@@ -1,7 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import type { AgentSession, Session } from '@shared/types'
+import type { AgentSession, Session, SendClientMessage, SubscribeServerMessage } from '@shared/types'
 import type { ConnectionStatus } from '../stores/sessionStore'
 import { useTerminal } from '../hooks/useTerminal'
+import { useIsMobileLayout } from '../hooks/useMobileLayout'
+import { useOnClickOutside } from '../hooks/useOnClickOutside'
+import { useEscapeToClose } from '../hooks/useEscapeToClose'
+import { useEdgeSwipeToOpenDrawer } from '../hooks/useEdgeSwipeToOpenDrawer'
 import { useThemeStore, terminalThemes } from '../stores/themeStore'
 import { useSettingsStore, getFontFamily } from '../stores/settingsStore'
 import { isIOSDevice, getEffectiveModifier, getModifierDisplay } from '../utils/device'
@@ -16,8 +20,8 @@ interface TerminalProps {
   sessions: Session[]
   inactiveSessions?: AgentSession[]
   connectionStatus: ConnectionStatus
-  sendMessage: (message: any) => void
-  subscribe: (listener: any) => () => void
+  sendMessage: SendClientMessage
+  subscribe: SubscribeServerMessage
   onClose: () => void
   onSelectSession: (sessionId: string) => void
   onNewSession: () => void
@@ -95,10 +99,7 @@ export default function Terminal({
   const shortcutModifier = useSettingsStore((state) => state.shortcutModifier)
   const modDisplay = getModifierDisplay(getEffectiveModifier(shortcutModifier))
   const isiOS = isIOSDevice()
-  const [isMobileLayout, setIsMobileLayout] = useState(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return false
-    return window.matchMedia('(max-width: 767px)').matches
-  })
+  const isMobileLayout = useIsMobileLayout()
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isSelectingText, setIsSelectingText] = useState(false)
   const [showEndConfirm, setShowEndConfirm] = useState(false)
@@ -106,7 +107,6 @@ export default function Terminal({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
-  const isEdgeSwipingRef = useRef(false)
   const lastSelectionInsideRef = useRef(false)
   const clearIOSSelectionRef = useRef<(() => void) | null>(null)
   const moreMenuRef = useRef<HTMLDivElement>(null)
@@ -137,90 +137,27 @@ export default function Terminal({
     terminalRef.current?.scrollToBottom()
   }, [session, sendMessage, setTmuxCopyMode, terminalRef])
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return
-    const mediaQuery = window.matchMedia('(max-width: 767px)')
-    const handleChange = () => setIsMobileLayout(mediaQuery.matches)
-    handleChange()
-    if (typeof mediaQuery.addEventListener === 'function') {
-      mediaQuery.addEventListener('change', handleChange)
-      return () => mediaQuery.removeEventListener('change', handleChange)
-    }
-    mediaQuery.addListener(handleChange)
-    return () => mediaQuery.removeListener(handleChange)
+  // Edge swipe to open drawer
+  const handleOpenDrawer = useCallback(() => {
+    setIsDrawerOpen(true)
+    triggerHaptic()
   }, [])
+  const isEdgeSwipingRef = useEdgeSwipeToOpenDrawer({
+    enabled: isMobileLayout || isiOS,
+    isOpen: isDrawerOpen,
+    onOpen: handleOpenDrawer,
+  })
 
+  // Close drawer when switching to desktop layout
   useEffect(() => {
     if (!isMobileLayout && !isiOS && isDrawerOpen) {
       setIsDrawerOpen(false)
     }
-  }, [isDrawerOpen, isMobileLayout])
-
-  // Swipe from left edge to open drawer
-  useEffect(() => {
-    if (!isMobileLayout && !isiOS) return
-
-    const EDGE_THRESHOLD = 30 // pixels from left edge to start
-    const SWIPE_DISTANCE = 50 // min horizontal swipe distance
-    const SWIPE_RATIO = 1.5 // horizontal distance must be > vertical * ratio
-
-    let touchStartX = 0
-    let touchStartY = 0
-    let isEdgeSwipe = false
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (isDrawerOpen) return
-      const touch = e.touches[0]
-      // Only start tracking if touch begins near left edge
-      if (touch.clientX <= EDGE_THRESHOLD) {
-        touchStartX = touch.clientX
-        touchStartY = touch.clientY
-        isEdgeSwipe = true
-        isEdgeSwipingRef.current = true
-      } else {
-        isEdgeSwipe = false
-      }
-    }
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      // Always clear the edge swiping ref on touch end
-      isEdgeSwipingRef.current = false
-
-      if (!isEdgeSwipe || isDrawerOpen) return
-
-      const touch = e.changedTouches[0]
-      const deltaX = touch.clientX - touchStartX
-      const deltaY = Math.abs(touch.clientY - touchStartY)
-
-      // Check if swipe was primarily horizontal and far enough
-      if (deltaX >= SWIPE_DISTANCE && deltaX > deltaY * SWIPE_RATIO) {
-        setIsDrawerOpen(true)
-        triggerHaptic()
-      }
-
-      isEdgeSwipe = false
-    }
-
-    document.addEventListener('touchstart', handleTouchStart, { passive: true })
-    document.addEventListener('touchend', handleTouchEnd, { passive: true })
-
-    return () => {
-      document.removeEventListener('touchstart', handleTouchStart)
-      document.removeEventListener('touchend', handleTouchEnd)
-    }
-  }, [isMobileLayout, isiOS, isDrawerOpen])
+  }, [isDrawerOpen, isMobileLayout, isiOS])
 
   // Close more menu when clicking outside
-  useEffect(() => {
-    if (!showMoreMenu) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
-        setShowMoreMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showMoreMenu])
+  const handleCloseMoreMenu = useCallback(() => setShowMoreMenu(false), [])
+  useOnClickOutside(moreMenuRef, showMoreMenu, handleCloseMoreMenu)
 
   // Focus rename input when renaming
   useEffect(() => {
@@ -230,21 +167,16 @@ export default function Terminal({
     }
   }, [isRenaming])
 
-  // Focus kill session button when confirm modal opens and handle Escape key
+  // Focus kill session button when confirm modal opens
   useEffect(() => {
     if (showEndConfirm && endSessionButtonRef.current) {
       endSessionButtonRef.current.focus()
     }
-    if (!showEndConfirm) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setShowEndConfirm(false)
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [showEndConfirm])
+
+  // Handle Escape key to close confirm modal
+  const handleCloseConfirm = useCallback(() => setShowEndConfirm(false), [])
+  useEscapeToClose(showEndConfirm, handleCloseConfirm)
 
   const handleEndSession = () => {
     if (!session) return
@@ -573,9 +505,10 @@ export default function Terminal({
     }
 
     // Send scroll events to tmux as SGR mouse sequences (like desktop wheel handler)
-    const sendScrollToTmux = (lines: number) => {
+    // Returns true if scrolled up (into history), false otherwise
+    const sendScrollToTmux = (lines: number): boolean => {
       const currentSessionId = sessionIdRef.current
-      if (!currentSessionId || lines === 0) return
+      if (!currentSessionId || lines === 0) return false
 
       const terminal = terminalRef.current
       const cols = terminal?.cols ?? 80
@@ -586,6 +519,7 @@ export default function Terminal({
       // SGR mouse wheel: button 64 = scroll up, 65 = scroll down
       const button = lines > 0 ? 65 : 64
       const count = Math.abs(lines)
+      const scrolledUp = lines < 0
 
       for (let i = 0; i < count; i++) {
         sendMessageRef.current({
@@ -595,8 +529,12 @@ export default function Terminal({
         })
       }
 
-      // Track that we're in tmux copy-mode (scrolled back)
-      setTmuxCopyMode(true)
+      // Only enter copy-mode when scrolling UP (into history), not when scrolling down
+      if (scrolledUp) {
+        setTmuxCopyMode(true)
+      }
+
+      return scrolledUp
     }
 
     const resetTouchState = () => {

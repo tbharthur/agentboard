@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useReducer, useCallback, useMemo, forwardRef } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, forwardRef } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
 import {
   DndContext,
@@ -30,6 +30,8 @@ import { getSessionIdShort } from '../utils/sessionId'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { getEffectiveModifier, getModifierDisplay } from '../utils/device'
+import { useCounterBump } from '../hooks/useCounterBump'
+import { useExitCleanup } from '../hooks/useExitCleanup'
 import AgentIcon from './AgentIcon'
 import InactiveSessionItem from './InactiveSessionItem'
 import ProjectBadge from './ProjectBadge'
@@ -59,9 +61,9 @@ const statusBarClass: Record<Session['status'], string> = {
 
 // Force re-render every 30s to update relative timestamps
 function useTimestampRefresh() {
-  const [, forceUpdate] = useReducer((x: number) => x + 1, 0)
+  const [, setTick] = useState(0)
   useEffect(() => {
-    const id = setInterval(forceUpdate, 30000)
+    const id = setInterval(() => setTick((n) => n + 1), 30000)
     return () => clearInterval(id)
   }, [])
 }
@@ -96,47 +98,10 @@ export default function SessionList({
 
   // Animation sequencing constants (in ms)
   const EXIT_DURATION = 200
-  const COUNTER_DELAY = EXIT_DURATION
 
-  // Track counts for counter animations
-  const prevActiveCountRef = useRef(sessions.length)
-  const prevInactiveCountRef = useRef(inactiveSessions.length)
-  const [activeCounterBump, setActiveCounterBump] = useState(false)
-  const [inactiveCounterBump, setInactiveCounterBump] = useState(false)
-
-  // Track pending counter bumps (delayed until exit animation completes)
-  const pendingActiveCounterRef = useRef(false)
-  const pendingInactiveCounterRef = useRef(false)
-
-  // Detect count changes and queue delayed counter bumps
-  useEffect(() => {
-    if (sessions.length !== prevActiveCountRef.current) {
-      pendingActiveCounterRef.current = true
-      const timer = setTimeout(() => {
-        if (pendingActiveCounterRef.current) {
-          setActiveCounterBump(true)
-          pendingActiveCounterRef.current = false
-        }
-      }, COUNTER_DELAY)
-      prevActiveCountRef.current = sessions.length
-      return () => clearTimeout(timer)
-    }
-  }, [sessions.length, COUNTER_DELAY])
-
-  useEffect(() => {
-    if (inactiveSessions.length > prevInactiveCountRef.current) {
-      pendingInactiveCounterRef.current = true
-      const timerId = setTimeout(() => {
-        if (pendingInactiveCounterRef.current) {
-          setInactiveCounterBump(true)
-          pendingInactiveCounterRef.current = false
-        }
-      }, COUNTER_DELAY)
-      prevInactiveCountRef.current = inactiveSessions.length
-      return () => clearTimeout(timerId)
-    }
-    prevInactiveCountRef.current = inactiveSessions.length
-  }, [inactiveSessions.length, COUNTER_DELAY])
+  // Counter bump animations
+  const [activeCounterBump, clearActiveCounterBump] = useCounterBump(sessions.length, EXIT_DURATION)
+  const [inactiveCounterBump, clearInactiveCounterBump] = useCounterBump(inactiveSessions.length, EXIT_DURATION, true)
 
   // Track newly added sessions for entry animations
   const prevActiveIdsRef = useRef<Set<string>>(new Set(sessions.map((s) => s.id)))
@@ -198,44 +163,9 @@ export default function SessionList({
   // Get exiting sessions from store (for kill-failed rollback only)
   const exitingSessions = useSessionStore((state) => state.exitingSessions)
   const clearExitingSession = useSessionStore((state) => state.clearExitingSession)
-  const exitCleanupTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
-  // Clear exitingSessions:
-  // - Immediately if session comes back (kill failed/rolled back)
-  // - After animation delay if session was removed (cleanup stale entries)
-  useEffect(() => {
-    const currentIds = new Set(sessions.map((s) => s.id))
-
-    for (const id of exitingSessions.keys()) {
-      if (currentIds.has(id)) {
-        // Session is back in active list (kill failed) - clear immediately
-        // Also cancel any pending cleanup timer
-        const timer = exitCleanupTimers.current.get(id)
-        if (timer) {
-          clearTimeout(timer)
-          exitCleanupTimers.current.delete(id)
-        }
-        clearExitingSession(id)
-      } else if (!exitCleanupTimers.current.has(id)) {
-        // Session is gone and no cleanup scheduled - schedule cleanup after animation
-        const timer = setTimeout(() => {
-          exitCleanupTimers.current.delete(id)
-          clearExitingSession(id)
-        }, EXIT_DURATION + 100)
-        exitCleanupTimers.current.set(id, timer)
-      }
-    }
-  }, [sessions, exitingSessions, clearExitingSession, EXIT_DURATION])
-
-  // Cleanup timers on unmount
-  useEffect(() => {
-    return () => {
-      for (const timer of exitCleanupTimers.current.values()) {
-        clearTimeout(timer)
-      }
-      exitCleanupTimers.current.clear()
-    }
-  }, [])
+  // Clean up exiting session state after animations
+  useExitCleanup(sessions, exitingSessions, clearExitingSession, EXIT_DURATION)
 
 
   // Clean up manualSessionOrder when sessions are removed
@@ -464,7 +394,7 @@ export default function SessionList({
               className="w-8 text-right text-xs text-muted"
               animate={activeCounterBump && !prefersReducedMotion ? { scale: [1, 1.3, 1] } : {}}
               transition={{ duration: 0.3 }}
-              onAnimationComplete={() => setActiveCounterBump(false)}
+              onAnimationComplete={clearActiveCounterBump}
             >
               {filteredSessions.length}
             </motion.span>
@@ -558,7 +488,7 @@ export default function SessionList({
                 className="w-8 text-right text-xs"
                 animate={inactiveCounterBump && !prefersReducedMotion ? { scale: [1, 1.3, 1] } : {}}
                 transition={{ duration: 0.3 }}
-                onAnimationComplete={() => setInactiveCounterBump(false)}
+                onAnimationComplete={clearInactiveCounterBump}
               >
                 {filteredInactiveSessions.length}
               </motion.span>

@@ -4,15 +4,15 @@
  * Batches tmux calls and runs status inference off the main thread.
  */
 import { inferAgentType } from './agentDetection'
+import { config } from './config'
 import { normalizeProjectPath } from './logDiscovery'
 import {
   extractRecentUserMessagesFromTmux,
   getTerminalScrollback,
 } from './logMatcher'
 import {
-  detectsPermissionPrompt,
-  isMeaningfulResizeChange,
-  normalizeContent,
+  inferSessionStatus,
+  type PaneCacheState,
 } from './statusInference'
 import type { Session, SessionStatus, SessionSource } from '../shared/types'
 
@@ -23,13 +23,6 @@ const BATCH_WINDOW_FORMAT_FALLBACK =
   '#{session_name}\t#{window_id}\t#{window_name}\t#{pane_current_path}\t#{window_activity}\t#{window_activity}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}'
 
 const LAST_USER_MESSAGE_SCROLLBACK_LINES = 200
-
-// Grace period before flipping from "working" to "waiting"
-// Prevents status flicker during Claude's micro-pauses (API calls, thinking)
-const workingGracePeriodMsRaw = Number(process.env.AGENTBOARD_WORKING_GRACE_MS)
-const WORKING_GRACE_PERIOD_MS = Number.isFinite(workingGracePeriodMsRaw)
-  ? workingGracePeriodMsRaw
-  : 4000
 
 interface WindowData {
   sessionName: string
@@ -43,16 +36,8 @@ interface WindowData {
   height: number
 }
 
-interface PaneCache {
-  content: string
-  lastChanged: number
-  hasEverChanged: boolean
-  width: number
-  height: number
-}
-
 // Cache persists across worker invocations
-const paneContentCache = new Map<string, PaneCache>()
+const paneContentCache = new Map<string, PaneCacheState>()
 
 export type RefreshWorkerRequest =
   | {
@@ -283,52 +268,15 @@ function inferStatus(
   }
 
   const cached = paneContentCache.get(tmuxWindow)
-  let contentChanged = false
-  if (cached !== undefined) {
-    const dimensionsChanged = cached.width !== width || cached.height !== height
-    if (dimensionsChanged) {
-      const oldNormalized = normalizeContent(cached.content)
-      const newNormalized = normalizeContent(content)
-      const resizeStats = isMeaningfulResizeChange(oldNormalized, newNormalized)
-      contentChanged = resizeStats.changed
-    } else {
-      contentChanged = cached.content !== content
-    }
-  }
-  const hasEverChanged = contentChanged || cached?.hasEverChanged === true
-  const lastChanged = contentChanged ? now : (cached?.lastChanged ?? now)
 
-  paneContentCache.set(tmuxWindow, {
-    content,
-    width,
-    height,
-    lastChanged,
-    hasEverChanged,
+  const result = inferSessionStatus({
+    prev: cached,
+    next: { content, width, height },
+    now,
+    workingGracePeriodMs: config.workingGracePeriodMs,
   })
 
-  const hasPermissionPrompt = detectsPermissionPrompt(content)
+  paneContentCache.set(tmuxWindow, result.nextCache)
 
-  // If no previous content, assume waiting (just started monitoring)
-  if (cached === undefined && !hasPermissionPrompt) {
-    return { status: 'waiting', lastChanged }
-  }
-
-  // Working takes precedence over permission prompts.
-  if (contentChanged) {
-    return { status: 'working', lastChanged }
-  }
-
-  if (hasPermissionPrompt) {
-    return { status: 'permission', lastChanged }
-  }
-
-  // Grace period: stay "working" if content changed recently
-  // This prevents status flicker during Claude's micro-pauses
-  const timeSinceLastChange = now - lastChanged
-  if (hasEverChanged && timeSinceLastChange < WORKING_GRACE_PERIOD_MS) {
-    return { status: 'working', lastChanged }
-  }
-
-  // Content unchanged and grace period expired
-  return { status: 'waiting', lastChanged }
+  return { status: result.status, lastChanged: result.lastChanged }
 }

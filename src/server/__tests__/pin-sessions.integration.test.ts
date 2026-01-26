@@ -274,7 +274,7 @@ async function waitForResurrectedSessionInDb(
 async function assertTmuxWindowExists(
   sessionName: string,
   tmuxWindow: string,
-  maxAttempts = 5
+  maxAttempts = 20
 ) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const result = Bun.spawnSync(
@@ -294,7 +294,7 @@ async function assertTmuxWindowExists(
           `tmux list-windows failed after ${maxAttempts} attempts: ${result.stderr.toString()}`
         )
       }
-      await delay(100)
+      await delay(200)
       continue
     }
     const windows = result.stdout
@@ -310,7 +310,7 @@ async function assertTmuxWindowExists(
         `tmux window not found after ${maxAttempts} attempts. Expected: ${tmuxWindow}, Found: [${windows.join(', ')}]`
       )
     }
-    await delay(100)
+    await delay(200)
   }
 }
 

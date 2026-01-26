@@ -107,3 +107,7 @@ export type ClientMessage =
   | { type: 'tmux-check-copy-mode'; sessionId: string }
   | { type: 'session-resume'; sessionId: string; name?: string }
   | { type: 'session-pin'; sessionId: string; isPinned: boolean }
+
+// Typed function signatures for client-side messaging
+export type SendClientMessage = (message: ClientMessage) => void
+export type SubscribeServerMessage = (listener: (message: ServerMessage) => void) => () => void

@@ -7,8 +7,8 @@ import { logger } from './logger'
 import { resolveProjectPath } from './paths'
 import {
   detectsPermissionPrompt,
-  isMeaningfulResizeChange,
-  normalizeContent,
+  inferSessionStatus,
+  type PaneCacheState,
 } from './statusInference'
 import type { Session, SessionStatus } from '../shared/types'
 
@@ -33,14 +33,7 @@ interface PaneCapture {
 type CapturePane = (tmuxWindow: string) => PaneCapture | null
 
 // Cache of pane content, dimensions, and last-changed timestamp for change detection
-interface PaneCache {
-  content: string
-  lastChanged: number
-  hasEverChanged: boolean
-  width: number
-  height: number
-}
-const paneContentCache = new Map<string, PaneCache>()
+const paneContentCache = new Map<string, PaneCacheState>()
 const WINDOW_LIST_FORMAT =
   '#{window_id}\t#{window_name}\t#{pane_current_path}\t#{window_activity}\t#{window_creation_time}\t#{pane_start_command}'
 const WINDOW_LIST_FORMAT_FALLBACK =
@@ -480,61 +473,19 @@ function inferStatus(
     return { status: 'unknown', lastChanged: now() }
   }
 
-  const { content, width, height } = pane
-
   const cached = paneContentCache.get(tmuxWindow)
-  let contentChanged = false
-  if (cached !== undefined) {
-    const dimensionsChanged =
-      cached.width !== width || cached.height !== height
-    if (dimensionsChanged) {
-      const oldNormalized = normalizeContent(cached.content)
-      const newNormalized = normalizeContent(content)
-      const resizeStats = isMeaningfulResizeChange(
-        oldNormalized,
-        newNormalized
-      )
-      contentChanged = resizeStats.changed
-    } else {
-      contentChanged = cached.content !== content
-    }
-  }
-  const hasEverChanged = contentChanged || cached?.hasEverChanged === true
-  const lastChanged = contentChanged ? now() : (cached?.lastChanged ?? now())
+  const currentTime = now()
 
-  paneContentCache.set(tmuxWindow, {
-    content,
-    width,
-    height,
-    lastChanged,
-    hasEverChanged,
+  const result = inferSessionStatus({
+    prev: cached,
+    next: pane,
+    now: currentTime,
+    workingGracePeriodMs: config.workingGracePeriodMs,
   })
 
-  const hasPermissionPrompt = detectsPermissionPrompt(content)
+  paneContentCache.set(tmuxWindow, result.nextCache)
 
-  // If no previous content, assume waiting (just started monitoring)
-  if (cached === undefined && !hasPermissionPrompt) {
-    return { status: 'waiting', lastChanged }
-  }
-
-  // Working takes precedence over permission prompts.
-  if (contentChanged) {
-    return { status: 'working', lastChanged }
-  }
-
-  if (hasPermissionPrompt) {
-    return { status: 'permission', lastChanged }
-  }
-
-  // Grace period: stay "working" if content changed recently
-  // This prevents status flicker during Claude's micro-pauses
-  const timeSinceLastChange = now() - lastChanged
-  if (hasEverChanged && timeSinceLastChange < config.workingGracePeriodMs) {
-    return { status: 'working', lastChanged }
-  }
-
-  // Content unchanged and grace period expired
-  return { status: 'waiting', lastChanged }
+  return { status: result.status, lastChanged: result.lastChanged }
 }
 
 function capturePaneWithDimensions(tmuxWindow: string): PaneCapture | null {
