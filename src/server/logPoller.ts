@@ -1,4 +1,5 @@
 import { logger } from './logger'
+import { config } from './config'
 import type { SessionDatabase } from './db'
 import { getLogSearchDirs } from './logDiscovery'
 import { DEFAULT_SCROLLBACK_LINES, isToolNotificationText } from './logMatcher'
@@ -154,6 +155,16 @@ export class LogPoller {
         if (record.currentWindow) continue
         const logFilePath = record.logFilePath
         if (!logFilePath) continue
+        // Skip sessions from excluded project directories
+        // Use "<empty>" as a special marker to exclude sessions with no project path
+        if (config.excludeProjects?.length > 0) {
+          const projectPath = record.projectPath ?? ''
+          const shouldExclude = config.excludeProjects.some((excluded) => {
+            if (excluded === '<empty>') return projectPath === ''
+            return projectPath.startsWith(excluded)
+          })
+          if (shouldExclude) continue
+        }
         orphanCandidates.push({
           sessionId: record.sessionId,
           logFilePath,
