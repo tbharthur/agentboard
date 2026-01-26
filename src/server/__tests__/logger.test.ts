@@ -1,134 +1,201 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-
-const ORIGINAL_LOG_LEVEL = process.env.LOG_LEVEL
-
-function restoreEnv() {
-  if (ORIGINAL_LOG_LEVEL === undefined) {
-    delete process.env.LOG_LEVEL
-  } else {
-    process.env.LOG_LEVEL = ORIGINAL_LOG_LEVEL
-  }
-}
-
-async function loadLogger(tag: string) {
-  const modulePath = `../logger?${tag}`
-  const module = await import(modulePath)
-  return module.logger as {
-    debug: (event: string, data?: Record<string, unknown>) => void
-    info: (event: string, data?: Record<string, unknown>) => void
-    warn: (event: string, data?: Record<string, unknown>) => void
-    error: (event: string, data?: Record<string, unknown>) => void
-  }
-}
+import { afterEach, describe, expect, test } from 'bun:test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 describe('logger', () => {
-  let consoleLogMock: ReturnType<typeof mock>
-  let consoleErrorMock: ReturnType<typeof mock>
-  let originalLog: typeof console.log
-  let originalError: typeof console.error
+  const ORIGINAL_LOG_LEVEL = process.env.LOG_LEVEL
+  const ORIGINAL_LOG_FILE = process.env.LOG_FILE
+  const ORIGINAL_NODE_ENV = process.env.NODE_ENV
 
-  beforeEach(() => {
-    originalLog = console.log
-    originalError = console.error
-    consoleLogMock = mock(() => {})
-    consoleErrorMock = mock(() => {})
-    console.log = consoleLogMock
-    console.error = consoleErrorMock
-  })
+  // Track imported modules for cleanup
+  let closeLogger: (() => void) | null = null
 
   afterEach(() => {
-    console.log = originalLog
-    console.error = originalError
-    restoreEnv()
+    // Close logger to release resources
+    if (closeLogger) {
+      closeLogger()
+      closeLogger = null
+    }
+
+    // Restore env vars
+    if (ORIGINAL_LOG_LEVEL === undefined) {
+      delete process.env.LOG_LEVEL
+    } else {
+      process.env.LOG_LEVEL = ORIGINAL_LOG_LEVEL
+    }
+    if (ORIGINAL_LOG_FILE === undefined) {
+      delete process.env.LOG_FILE
+    } else {
+      process.env.LOG_FILE = ORIGINAL_LOG_FILE
+    }
+    if (ORIGINAL_NODE_ENV === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = ORIGINAL_NODE_ENV
+    }
   })
 
-  test('outputs structured JSON with timestamp', async () => {
-    delete process.env.LOG_LEVEL
-    const logger = await loadLogger('json-format')
+  test('logger exports expected interface', async () => {
+    const mod = await import(`../logger?iface-${Date.now()}`)
+    closeLogger = mod.closeLogger
 
-    logger.info('test_event', { foo: 'bar' })
-
-    expect(consoleLogMock).toHaveBeenCalledTimes(1)
-    const output = JSON.parse(consoleLogMock.mock.calls[0][0])
-    expect(output.level).toBe('info')
-    expect(output.event).toBe('test_event')
-    expect(output.foo).toBe('bar')
-    expect(output.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(typeof mod.logger.debug).toBe('function')
+    expect(typeof mod.logger.info).toBe('function')
+    expect(typeof mod.logger.warn).toBe('function')
+    expect(typeof mod.logger.error).toBe('function')
+    expect(typeof mod.flushLogger).toBe('function')
+    expect(typeof mod.closeLogger).toBe('function')
   })
 
-  test('uses console.error for error level', async () => {
-    delete process.env.LOG_LEVEL
-    const logger = await loadLogger('error-stderr')
+  test('writes to log file when LOG_FILE is set', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logger-test-'))
+    const logFile = path.join(tmpDir, 'test.log')
 
-    logger.error('error_event', { code: 500 })
-
-    expect(consoleErrorMock).toHaveBeenCalledTimes(1)
-    expect(consoleLogMock).not.toHaveBeenCalled()
-    const output = JSON.parse(consoleErrorMock.mock.calls[0][0])
-    expect(output.level).toBe('error')
-    expect(output.event).toBe('error_event')
-  })
-
-  test('filters by log level - info filters out debug', async () => {
+    process.env.LOG_FILE = logFile
     process.env.LOG_LEVEL = 'info'
-    const logger = await loadLogger('level-info')
+    process.env.NODE_ENV = 'production'
 
-    logger.debug('debug_event')
-    logger.info('info_event')
+    const mod = await import(`../logger?file-${Date.now()}`)
+    closeLogger = mod.closeLogger
 
-    expect(consoleLogMock).toHaveBeenCalledTimes(1)
-    const output = JSON.parse(consoleLogMock.mock.calls[0][0])
-    expect(output.event).toBe('info_event')
+    mod.logger.info('test_event', { foo: 'bar' })
+    mod.flushLogger()
+
+    const content = fs.readFileSync(logFile, 'utf-8')
+    expect(content).toContain('test_event')
+    expect(content).toContain('foo')
+
+    mod.closeLogger()
+    closeLogger = null
+    fs.rmSync(tmpDir, { recursive: true })
   })
 
-  test('filters by log level - error filters out warn/info/debug', async () => {
-    process.env.LOG_LEVEL = 'error'
-    const logger = await loadLogger('level-error')
+  test('logger respects log level from env', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logger-test-'))
+    const logFile = path.join(tmpDir, 'test.log')
 
-    logger.debug('debug_event')
-    logger.info('info_event')
-    logger.warn('warn_event')
-    logger.error('error_event')
+    process.env.LOG_FILE = logFile
+    process.env.LOG_LEVEL = 'warn'
+    process.env.NODE_ENV = 'production'
 
-    expect(consoleLogMock).not.toHaveBeenCalled()
-    expect(consoleErrorMock).toHaveBeenCalledTimes(1)
-  })
+    const mod = await import(`../logger?level-${Date.now()}`)
+    closeLogger = mod.closeLogger
 
-  test('debug level shows all logs', async () => {
-    process.env.LOG_LEVEL = 'debug'
-    const logger = await loadLogger('level-debug')
+    mod.logger.debug('debug_event')
+    mod.logger.info('info_event')
+    mod.logger.warn('warn_event')
+    mod.flushLogger()
 
-    logger.debug('debug_event')
-    logger.info('info_event')
-    logger.warn('warn_event')
-    logger.error('error_event')
+    const content = fs.readFileSync(logFile, 'utf-8')
+    expect(content).not.toContain('debug_event')
+    expect(content).not.toContain('info_event')
+    expect(content).toContain('warn_event')
 
-    expect(consoleLogMock).toHaveBeenCalledTimes(3) // debug, info, warn
-    expect(consoleErrorMock).toHaveBeenCalledTimes(1) // error
+    mod.closeLogger()
+    closeLogger = null
+    fs.rmSync(tmpDir, { recursive: true })
   })
 
   test('defaults to info level when LOG_LEVEL not set', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logger-test-'))
+    const logFile = path.join(tmpDir, 'test.log')
+
     delete process.env.LOG_LEVEL
-    const logger = await loadLogger('default-level')
+    process.env.LOG_FILE = logFile
+    process.env.NODE_ENV = 'production'
 
-    logger.debug('debug_event')
-    logger.info('info_event')
+    const mod = await import(`../logger?default-${Date.now()}`)
+    closeLogger = mod.closeLogger
 
-    expect(consoleLogMock).toHaveBeenCalledTimes(1)
-    const output = JSON.parse(consoleLogMock.mock.calls[0][0])
-    expect(output.event).toBe('info_event')
+    mod.logger.debug('debug_event')
+    mod.logger.info('info_event')
+    mod.flushLogger()
+
+    const content = fs.readFileSync(logFile, 'utf-8')
+    expect(content).not.toContain('debug_event')
+    expect(content).toContain('info_event')
+
+    mod.closeLogger()
+    closeLogger = null
+    fs.rmSync(tmpDir, { recursive: true })
   })
 
   test('handles invalid LOG_LEVEL gracefully', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logger-test-'))
+    const logFile = path.join(tmpDir, 'test.log')
+
     process.env.LOG_LEVEL = 'invalid'
-    const logger = await loadLogger('invalid-level')
+    process.env.LOG_FILE = logFile
+    process.env.NODE_ENV = 'production'
 
-    logger.debug('debug_event')
-    logger.info('info_event')
+    const mod = await import(`../logger?invalid-${Date.now()}`)
+    closeLogger = mod.closeLogger
 
+    mod.logger.debug('debug_event')
+    mod.logger.info('info_event')
+    mod.flushLogger()
+
+    const content = fs.readFileSync(logFile, 'utf-8')
     // Should default to info level
-    expect(consoleLogMock).toHaveBeenCalledTimes(1)
-    const output = JSON.parse(consoleLogMock.mock.calls[0][0])
-    expect(output.event).toBe('info_event')
+    expect(content).not.toContain('debug_event')
+    expect(content).toContain('info_event')
+
+    mod.closeLogger()
+    closeLogger = null
+    fs.rmSync(tmpDir, { recursive: true })
+  })
+
+  test('log entries include event name in output', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logger-test-'))
+    const logFile = path.join(tmpDir, 'test.log')
+
+    process.env.LOG_FILE = logFile
+    process.env.LOG_LEVEL = 'info'
+    process.env.NODE_ENV = 'production'
+
+    const mod = await import(`../logger?event-${Date.now()}`)
+    closeLogger = mod.closeLogger
+
+    mod.logger.info('my_custom_event', { key: 'value' })
+    mod.flushLogger()
+
+    const content = fs.readFileSync(logFile, 'utf-8')
+    const lines = content.trim().split('\n')
+    const entry = JSON.parse(lines[0])
+
+    expect(entry.event).toBe('my_custom_event')
+    expect(entry.key).toBe('value')
+    expect(entry.level).toBe(30) // pino info level number
+
+    mod.closeLogger()
+    closeLogger = null
+    fs.rmSync(tmpDir, { recursive: true })
+  })
+
+  test('event field is not overwritten by data', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logger-test-'))
+    const logFile = path.join(tmpDir, 'test.log')
+
+    process.env.LOG_FILE = logFile
+    process.env.LOG_LEVEL = 'info'
+    process.env.NODE_ENV = 'production'
+
+    const mod = await import(`../logger?override-${Date.now()}`)
+    closeLogger = mod.closeLogger
+
+    // Pass data that tries to override event field
+    mod.logger.info('correct_event', { event: 'wrong_event', other: 'data' })
+    mod.flushLogger()
+
+    const content = fs.readFileSync(logFile, 'utf-8')
+    const entry = JSON.parse(content.trim())
+
+    expect(entry.event).toBe('correct_event')
+    expect(entry.other).toBe('data')
+
+    mod.closeLogger()
+    closeLogger = null
+    fs.rmSync(tmpDir, { recursive: true })
   })
 })
