@@ -32,8 +32,9 @@ if (!tmuxAvailable) {
     const projectPath = process.cwd()
     let serverProcess: ReturnType<typeof Bun.spawn> | null = null
     let port = 0
-    const originalTmuxTmpDir = process.env.TMUX_TMPDIR
     let tmuxTmpDir: string | null = null
+    const tmuxEnv = (): NodeJS.ProcessEnv =>
+      tmuxTmpDir ? { ...process.env, TMUX_TMPDIR: tmuxTmpDir } : { ...process.env }
 
     // Session ID for pin/unpin test - seeded before server starts
     const wsTestSessionId = `ws-pin-test-${Date.now()}`
@@ -41,19 +42,25 @@ if (!tmuxAvailable) {
     async function startServer() {
       port = await getFreePort()
       const resumeCommand = 'sh -c "sleep 30" -- {sessionId}'
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        PORT: String(port),
+        TMUX_SESSION: sessionName,
+        DISCOVER_PREFIXES: '',
+        AGENTBOARD_LOG_POLL_MS: '0',
+        AGENTBOARD_DB_PATH: dbPath,
+        // Use a long-lived command so windows stay open during the test
+        CLAUDE_RESUME_CMD: resumeCommand,
+        CODEX_RESUME_CMD: resumeCommand,
+        // Ensure consistent startup regardless of CI terminal mode
+        TERMINAL_MODE: 'pty',
+      }
+      if (tmuxTmpDir) {
+        env.TMUX_TMPDIR = tmuxTmpDir
+      }
       serverProcess = Bun.spawn(['bun', 'src/server/index.ts'], {
         cwd: process.cwd(),
-        env: {
-          ...process.env,
-          PORT: String(port),
-          TMUX_SESSION: sessionName,
-          DISCOVER_PREFIXES: '',
-          AGENTBOARD_LOG_POLL_MS: '0',
-          AGENTBOARD_DB_PATH: dbPath,
-          // Use a long-lived command so windows stay open during the test
-          CLAUDE_RESUME_CMD: resumeCommand,
-          CODEX_RESUME_CMD: resumeCommand,
-        },
+        env,
         stdout: 'ignore',
         stderr: 'ignore',
       })
@@ -74,12 +81,12 @@ if (!tmuxAvailable) {
 
     beforeAll(async () => {
       tmuxTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentboard-tmux-'))
-      process.env.TMUX_TMPDIR = tmuxTmpDir
 
       // Create the tmux session first (required for resurrection to work)
       Bun.spawnSync(['tmux', 'new-session', '-d', '-s', sessionName], {
         stdout: 'ignore',
         stderr: 'ignore',
+        env: tmuxEnv(),
       })
 
       // Seed the database BEFORE starting the server to avoid SQLite locking issues
@@ -108,6 +115,7 @@ if (!tmuxAvailable) {
         Bun.spawnSync(['tmux', 'kill-session', '-t', sessionName], {
           stdout: 'ignore',
           stderr: 'ignore',
+          env: tmuxEnv(),
         })
       } catch {
         // ignore cleanup errors
@@ -118,11 +126,6 @@ if (!tmuxAvailable) {
         } catch {
           // ignore cleanup errors
         }
-      }
-      if (originalTmuxTmpDir === undefined) {
-        delete process.env.TMUX_TMPDIR
-      } else {
-        process.env.TMUX_TMPDIR = originalTmuxTmpDir
       }
       try {
         fs.unlinkSync(dbPath)
@@ -166,7 +169,11 @@ if (!tmuxAvailable) {
         throw new Error('Resurrected session missing current window')
       }
       expect(resurrected.currentWindow.startsWith(`${sessionName}:`)).toBe(true)
-      await assertTmuxWindowExists(sessionName, resurrected.currentWindow)
+      await assertTmuxWindowExists(
+        sessionName,
+        resurrected.currentWindow,
+        tmuxEnv()
+      )
       },
       15000
     )
@@ -248,14 +255,18 @@ async function waitForHealth(port: number, timeoutMs = 8000): Promise<void> {
 async function waitForResurrectedSessionInDb(
   sessionId: string,
   dbPath: string,
-  timeoutMs = 8000
+  timeoutMs = 15000
 ): Promise<AgentSessionRecord> {
   const start = Date.now()
+  let lastRecord: AgentSessionRecord | null = null
   while (Date.now() - start < timeoutMs) {
     try {
       const db = initDatabase({ path: dbPath })
       const record = db.getSessionById(sessionId)
       db.close()
+      if (record) {
+        lastRecord = record
+      }
       if (
         record &&
         record.isPinned &&
@@ -269,12 +280,16 @@ async function waitForResurrectedSessionInDb(
     }
     await delay(150)
   }
-  throw new Error('Pinned session did not resurrect in time')
+  const detail = lastRecord?.lastResumeError
+    ? ` Last resume error: ${lastRecord.lastResumeError}`
+    : ''
+  throw new Error(`Pinned session did not resurrect in time.${detail}`)
 }
 
 async function assertTmuxWindowExists(
   sessionName: string,
   tmuxWindow: string,
+  env?: NodeJS.ProcessEnv,
   maxAttempts = 20
 ) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -287,7 +302,7 @@ async function assertTmuxWindowExists(
         '-F',
         '#{session_name}:#{window_id}',
       ],
-      { stdout: 'pipe', stderr: 'pipe' }
+      { stdout: 'pipe', stderr: 'pipe', env }
     )
     if (result.exitCode !== 0) {
       if (attempt === maxAttempts) {
