@@ -1,4 +1,5 @@
 import type { TerminalErrorCode } from '../../shared/types'
+import type { ControlModeEvent } from './ControlModeTypes'
 
 type SpawnFn = (
   args: string[],
@@ -12,7 +13,7 @@ type SpawnSyncFn = (
 
 type WaitFn = (ms: number) => Promise<void>
 
-type TerminalMode = 'pty' | 'pipe-pane' | 'auto'
+type TerminalMode = 'pty' | 'pipe-pane' | 'control-mode' | 'auto'
 
 enum TerminalState {
   INITIAL = 'INITIAL',
@@ -38,6 +39,7 @@ interface TerminalProxyOptions {
   sessionName: string
   baseSession: string
   onData: (data: string) => void
+  onEvent?: (event: ControlModeEvent) => void
   onExit?: () => void
   spawn?: SpawnFn
   spawnSync?: SpawnSyncFn
@@ -56,7 +58,7 @@ interface ITerminalProxy {
   getClientTty(): string | null
   getCurrentWindow(): string | null
   getSessionName(): string
-  getMode(): 'pty' | 'pipe-pane'
+  getMode(): 'pty' | 'pipe-pane' | 'control-mode'
 }
 
 export type {
