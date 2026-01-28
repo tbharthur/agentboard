@@ -82,6 +82,7 @@ export type ServerMessage =
   | { type: 'tmux-copy-mode-status'; sessionId: string; inCopyMode: boolean }
   | { type: 'error'; message: string }
   | { type: 'kill-failed'; sessionId: string; message: string }
+  | ControlModeServerMessage
 
 export interface ResumeError {
   code: 'NOT_FOUND' | 'ALREADY_ACTIVE' | 'RESUME_FAILED'
@@ -107,6 +108,27 @@ export type ClientMessage =
   | { type: 'tmux-check-copy-mode'; sessionId: string }
   | { type: 'session-resume'; sessionId: string; name?: string }
   | { type: 'session-pin'; sessionId: string; isPinned: boolean }
+  | ControlModeClientMessage
+
+// Control mode server messages (server → client)
+export type ControlModeServerMessage =
+  | { type: 'cm-output'; sessionId: string; paneId: string; data: string; latencyMs?: number }
+  | { type: 'cm-command-start'; sessionId: string; cmdNum: number; timestamp: number }
+  | { type: 'cm-command-end'; sessionId: string; cmdNum: number; success: boolean }
+  | {
+      type: 'cm-window'
+      sessionId: string
+      event: 'add' | 'close' | 'renamed'
+      windowId: string
+      name?: string
+    }
+  | { type: 'cm-session'; sessionId: string; event: 'changed' | 'renamed'; name: string }
+  | { type: 'cm-flow'; sessionId: string; event: 'pause' | 'continue'; paneId: string }
+  | { type: 'cm-exit'; sessionId: string; reason?: string }
+
+// Control mode client messages (client → server)
+export type ControlModeClientMessage =
+  | { type: 'terminal-flow'; sessionId: string; paneId: string; action: 'pause' | 'resume' }
 
 // Typed function signatures for client-side messaging
 export type SendClientMessage = (message: ClientMessage) => void
