@@ -12,10 +12,7 @@ import { LogPoller } from './logPoller'
 import { toAgentSession } from './agentSessions'
 import { getLogSearchDirs } from './logDiscovery'
 import { verifyWindowLogAssociationDetailed } from './logMatcher'
-import {
-  resolveTerminalMode,
-  TerminalProxyError,
-} from './terminal'
+import { TerminalProxyError } from './terminal'
 import type { ITerminalProxy } from './terminal'
 import { ControlModeProxy } from './terminal/ControlModeProxy'
 import type { ControlModeEvent } from './terminal/ControlModeTypes'
@@ -167,11 +164,7 @@ function createConnectionId(): string {
 checkPortAvailable(config.port)
 ensureTmux()
 pruneOrphanedWsSessions()
-const resolvedTerminalMode = resolveTerminalMode()
-logger.info('terminal_mode_resolved', {
-  configured: config.terminalMode,
-  resolved: resolvedTerminalMode,
-})
+logger.info('terminal_mode', { mode: 'control' })
 
 const app = new Hono()
 const db = initDatabase()

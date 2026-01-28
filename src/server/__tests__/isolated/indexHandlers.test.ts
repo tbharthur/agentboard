@@ -338,10 +338,11 @@ class TerminalProxyErrorMock extends Error {
 }
 
 mock.module('../../terminal', () => ({
-  createTerminalProxy: (options: ConstructorParameters<typeof TerminalProxyMock>[0]) =>
-    new TerminalProxyMock(options),
-  resolveTerminalMode: () => 'pty',
   TerminalProxyError: TerminalProxyErrorMock,
+}))
+
+mock.module('../../terminal/ControlModeProxy', () => ({
+  ControlModeProxy: TerminalProxyMock,
 }))
 
 const baseSession: Session = {
