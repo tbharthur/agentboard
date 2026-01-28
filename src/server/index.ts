@@ -13,11 +13,12 @@ import { toAgentSession } from './agentSessions'
 import { getLogSearchDirs } from './logDiscovery'
 import { verifyWindowLogAssociationDetailed } from './logMatcher'
 import {
-  createTerminalProxy,
   resolveTerminalMode,
   TerminalProxyError,
 } from './terminal'
 import type { ITerminalProxy } from './terminal'
+import { ControlModeProxy } from './terminal/ControlModeProxy'
+import type { ControlModeEvent } from './terminal/ControlModeTypes'
 import { resolveProjectPath } from './paths'
 import type {
   ClientMessage,
@@ -930,6 +931,9 @@ function handleMessage(
     case 'session-pin':
       handleSessionPin(message.sessionId, message.isPinned, ws)
       return
+    case 'terminal-flow':
+      handleTerminalFlow(ws, message.sessionId, message.paneId, message.action)
+      return
     default:
       send(ws, { type: 'error', message: 'Unknown message type' })
   }
@@ -1292,17 +1296,55 @@ function initializePersistentTerminal(ws: ServerWebSocket<WSData>) {
 function createPersistentTerminal(ws: ServerWebSocket<WSData>) {
   const sessionName = `${config.tmuxSession}-ws-${ws.data.connectionId}`
 
-  const terminal = createTerminalProxy({
+  const terminal = new ControlModeProxy({
     connectionId: ws.data.connectionId,
     sessionName,
     baseSession: config.tmuxSession,
-    monitorTargets: config.terminalMonitorTargets,
     onData: (data) => {
+      // Legacy - keep for compatibility during transition
       const sessionId = ws.data.currentSessionId
       if (!sessionId) {
         return
       }
       send(ws, { type: 'terminal-output', sessionId, data })
+    },
+    onEvent: (event: ControlModeEvent) => {
+      const sessionId = ws.data.currentSessionId
+      if (!sessionId) {
+        return
+      }
+      switch (event.type) {
+        case 'output':
+          send(ws, {
+            type: 'cm-output',
+            sessionId,
+            paneId: event.paneId,
+            data: event.data,
+            latencyMs: event.latencyMs,
+          })
+          break
+        case 'window-add':
+          send(ws, { type: 'cm-window', sessionId, event: 'add', windowId: event.windowId })
+          break
+        case 'window-close':
+          send(ws, { type: 'cm-window', sessionId, event: 'close', windowId: event.windowId })
+          break
+        case 'window-renamed':
+          send(ws, { type: 'cm-window', sessionId, event: 'renamed', windowId: event.windowId, name: event.name })
+          break
+        case 'session-changed':
+          send(ws, { type: 'cm-session', sessionId, event: 'changed', name: event.name })
+          break
+        case 'pause':
+          send(ws, { type: 'cm-flow', sessionId, event: 'pause', paneId: event.paneId })
+          break
+        case 'continue':
+          send(ws, { type: 'cm-flow', sessionId, event: 'continue', paneId: event.paneId })
+          break
+        case 'exit':
+          send(ws, { type: 'cm-exit', sessionId, reason: event.reason })
+          break
+      }
     },
     onExit: () => {
       const sessionId = ws.data.currentSessionId
@@ -1452,6 +1494,28 @@ function handleTerminalResizePersistent(
   ws.data.terminal?.resize(cols, rows)
 }
 
+function handleTerminalFlow(
+  ws: ServerWebSocket<WSData>,
+  sessionId: string,
+  paneId: string,
+  action: 'pause' | 'resume'
+) {
+  if (sessionId !== ws.data.currentSessionId) {
+    return
+  }
+  const terminal = ws.data.terminal
+  if (!terminal) {
+    return
+  }
+  // ControlModeProxy has pausePane/resumePane methods
+  if (terminal instanceof ControlModeProxy) {
+    if (action === 'pause') {
+      terminal.pausePane(paneId)
+    } else {
+      terminal.resumePane(paneId)
+    }
+  }
+}
 
 function sendTerminalError(
   ws: ServerWebSocket<WSData>,
