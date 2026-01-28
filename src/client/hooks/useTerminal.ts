@@ -713,6 +713,52 @@ export function useTerminal({
         scheduleFlush()
       }
 
+      // Handle control mode output - same as terminal-output
+      if (
+        message.type === 'cm-output' &&
+        attachedSession &&
+        message.sessionId === attachedSession
+      ) {
+        outputBufferRef.current += forceTextPresentation(message.data)
+        scheduleFlush()
+      }
+
+      // Handle control mode window events (debug logging for now)
+      if (
+        message.type === 'cm-window' &&
+        attachedSession &&
+        message.sessionId === attachedSession
+      ) {
+        console.debug('cm-window:', message.event, message.windowId, message.name)
+      }
+
+      // Handle control mode session events (debug logging for now)
+      if (
+        message.type === 'cm-session' &&
+        attachedSession &&
+        message.sessionId === attachedSession
+      ) {
+        console.debug('cm-session:', message.event, message.name)
+      }
+
+      // Handle control mode flow events (debug logging for now)
+      if (
+        message.type === 'cm-flow' &&
+        attachedSession &&
+        message.sessionId === attachedSession
+      ) {
+        console.debug('cm-flow:', message.event, message.paneId)
+      }
+
+      // Handle control mode exit events (debug logging for now)
+      if (
+        message.type === 'cm-exit' &&
+        attachedSession &&
+        message.sessionId === attachedSession
+      ) {
+        console.debug('cm-exit:', message.reason)
+      }
+
       // Handle tmux copy-mode status response
       if (
         message.type === 'tmux-copy-mode-status' &&
