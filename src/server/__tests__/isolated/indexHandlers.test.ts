@@ -1439,7 +1439,7 @@ describe('server startup side effects', () => {
         return {
           exitCode: 0,
           stdout: Buffer.from(
-            ['agentboard-ws-1\t0', 'agentboard-ws-2\t1', 'other\t0'].join('\n')
+            ['agentboard-ws-1|0', 'agentboard-ws-2|1', 'other|0'].join('\n')
           ),
           stderr: Buffer.from(''),
         } as ReturnType<typeof Bun.spawnSync>

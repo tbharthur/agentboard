@@ -18,9 +18,9 @@ import type { Session, SessionStatus, SessionSource } from '../shared/types'
 
 // Format string for batched window listing
 const BATCH_WINDOW_FORMAT =
-  '#{session_name}\t#{window_id}\t#{window_name}\t#{pane_current_path}\t#{window_activity}\t#{window_creation_time}\t#{pane_start_command}\t#{pane_width}\t#{pane_height}'
+  '#{session_name}|#{window_id}|#{window_name}|#{pane_current_path}|#{window_activity}|#{window_creation_time}|#{pane_start_command}|#{pane_width}|#{pane_height}'
 const BATCH_WINDOW_FORMAT_FALLBACK =
-  '#{session_name}\t#{window_id}\t#{window_name}\t#{pane_current_path}\t#{window_activity}\t#{window_activity}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}'
+  '#{session_name}|#{window_id}|#{window_name}|#{pane_current_path}|#{window_activity}|#{window_activity}|#{pane_current_command}|#{pane_width}|#{pane_height}'
 
 const LAST_USER_MESSAGE_SCROLLBACK_LINES = 200
 
@@ -159,7 +159,7 @@ function listAllWindowData(): WindowData[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const parts = line.split('\t')
+      const parts = line.split('|')
       return {
         sessionName: parts[0] ?? '',
         windowId: parts[1] ?? '',

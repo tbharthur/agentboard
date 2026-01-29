@@ -52,10 +52,10 @@ describe('sessionRefreshWorker', () => {
     await loadWorker('refresh-filter')
 
     const listOutput = [
-      'agentboard\t1\talpha\t/Users/test/project\t100\t1700000000\tcodex --search\t80\t24',
-      'agentboard-ws-foo\t2\tws\t/Users/test/ws\t100\t1700000001\tbash\t80\t24',
-      'external-session\t3\text\t/Users/test/ext\t100\t1700000002\tclaude\t100\t40',
-      'other\t4\tother\t/Users/test/other\t100\t1700000003\tbash\t80\t24',
+      'agentboard|1|alpha|/Users/test/project|100|1700000000|codex --search|80|24',
+      'agentboard-ws-foo|2|ws|/Users/test/ws|100|1700000001|bash|80|24',
+      'external-session|3|ext|/Users/test/ext|100|1700000002|claude|100|40',
+      'other|4|other|/Users/test/other|100|1700000003|bash|80|24',
     ].join('\n')
 
     const captureOutputs = new Map<string, string>([
@@ -138,7 +138,7 @@ describe('sessionRefreshWorker', () => {
     await loadWorker('format-fallback')
 
     const listOutput = [
-      'agentboard\t1\talpha\t/Users/test/project\t100\t1700000000\tcodex\t80\t24',
+      'agentboard|1|alpha|/Users/test/project|100|1700000000|codex|80|24',
     ].join('\n')
 
     let listCalls = 0
@@ -262,7 +262,7 @@ describe('sessionRefreshWorker', () => {
       await loadWorker('status-changes')
 
       const listOutput = [
-        'agentboard\t1\talpha\t/Users/test/project\t100\t1700000000\tcodex\t80\t24',
+        'agentboard|1|alpha|/Users/test/project|100|1700000000|codex|80|24',
       ].join('\n')
 
       const captureSequence = [
@@ -349,7 +349,7 @@ describe('sessionRefreshWorker', () => {
       await loadWorker('status-first-observation')
 
       const listOutput = [
-        'agentboard\t1\talpha\t/Users/test/project\t100\t1700000000\tcodex\t80\t24',
+        'agentboard|1|alpha|/Users/test/project|100|1700000000|codex|80|24',
       ].join('\n')
 
       const captureSequence = ['idle', 'idle']

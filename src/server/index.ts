@@ -42,7 +42,7 @@ import {
 function checkPortAvailable(port: number): void {
   let result: ReturnType<typeof Bun.spawnSync>
   try {
-    result = Bun.spawnSync(['lsof', '-i', `:${port}`, '-t'], {
+    result = Bun.spawnSync(['lsof', '-i', `:${port}`, '-sTCP:LISTEN', '-t'], {
       stdout: 'pipe',
       stderr: 'pipe',
     })
@@ -105,7 +105,7 @@ function pruneOrphanedWsSessions(): void {
   let result: ReturnType<typeof Bun.spawnSync>
   try {
     result = Bun.spawnSync(
-      ['tmux', 'list-sessions', '-F', '#{session_name}\t#{session_attached}'],
+      ['tmux', 'list-sessions', '-F', '#{session_name}|#{session_attached}'],
       {
         stdout: 'pipe',
         stderr: 'pipe',
@@ -129,7 +129,7 @@ function pruneOrphanedWsSessions(): void {
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed) continue
-    const [name, attachedRaw] = trimmed.split('\t')
+    const [name, attachedRaw] = trimmed.split('|')
     if (!name || !name.startsWith(prefix)) continue
     const attached = Number.parseInt(attachedRaw ?? '', 10)
     if (Number.isNaN(attached) || attached > 0) continue

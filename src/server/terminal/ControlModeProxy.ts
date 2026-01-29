@@ -14,7 +14,7 @@ const O_NONBLOCK = 0x0004
 // Lazy-loaded FFI — deferred to first PTY creation to avoid blocking server startup.
 // Bun's dlopen at module top-level can stall the HTTP event loop.
 let _ffi: {
-  symbols: { openpty: CallableFunction; fcntl: CallableFunction }
+  symbols: { openpty: CallableFunction; fcntl: CallableFunction; poll: CallableFunction }
   ptr: CallableFunction
 } | null = null
 
@@ -30,10 +30,29 @@ function loadFfi() {
         args: [FFIType.i32, FFIType.i32, FFIType.i32],
         returns: FFIType.i32,
       },
+      poll: {
+        args: [FFIType.ptr, FFIType.u32, FFIType.i32],
+        returns: FFIType.i32,
+      },
     })
     _ffi = { symbols: lib.symbols, ptr }
   }
   return _ffi
+}
+
+const POLLIN = 0x0001
+
+/** Non-blocking check if fd has data ready to read. */
+function fdHasData(fd: number): boolean {
+  const { symbols, ptr } = loadFfi()
+  // struct pollfd { int fd; short events; short revents; } = 8 bytes
+  const pollfd = new ArrayBuffer(8)
+  const view = new DataView(pollfd)
+  view.setInt32(0, fd, true)       // fd
+  view.setInt16(4, POLLIN, true)   // events = POLLIN
+  view.setInt16(6, 0, true)        // revents = 0
+  const ready = symbols.poll(ptr(new Uint8Array(pollfd)), 1, 0) as number
+  return ready > 0
 }
 
 /** Create a PTY pair with non-blocking master. Returns { masterFd, slaveFd }. */
@@ -265,40 +284,43 @@ class ControlModeProxy extends TerminalProxyBase {
     const buf = Buffer.alloc(16384)
     const decoder = new TextDecoder()
     let idleCount = 0
-
     const tick = () => {
       if (!this.reading || this.masterFd === null) return
 
       let gotData = false
-      try {
-        const n = readSync(this.masterFd, buf, 0, buf.length, null)
-        if (n > 0) {
-          gotData = true
-          idleCount = 0
-          const text = decoder.decode(buf.subarray(0, n), { stream: true })
-          const events = this.parser.feed(text)
-          for (const event of events) {
-            this.handleEvent(event)
+      // Use poll() to check for data before readSync. Bun's readSync blocks even
+      // on O_NONBLOCK fds, so we must verify data is available first.
+      if (fdHasData(this.masterFd)) {
+        try {
+          const n = readSync(this.masterFd, buf, 0, buf.length, null)
+          if (n > 0) {
+            gotData = true
+            idleCount = 0
+            const text = decoder.decode(buf.subarray(0, n), { stream: true })
+            const events = this.parser.feed(text)
+            for (const event of events) {
+              this.handleEvent(event)
+            }
+          }
+        } catch (error: unknown) {
+          const code = (error as NodeJS.ErrnoException).code
+          if (code !== 'EAGAIN' && code !== 'EWOULDBLOCK') {
+            this.reading = false
+            this.logEvent('terminal_read_error', {
+              sessionName: this.options.sessionName,
+              error: error instanceof Error ? error.message : 'Read loop failed',
+              mode: this.getMode(),
+            })
+            return
           }
         }
-      } catch (error: unknown) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (code === 'EAGAIN' || code === 'EWOULDBLOCK') {
-          idleCount++
-        } else {
-          this.reading = false
-          this.logEvent('terminal_read_error', {
-            sessionName: this.options.sessionName,
-            error: error instanceof Error ? error.message : 'Read loop failed',
-            mode: this.getMode(),
-          })
-          return
-        }
+      } else {
+        idleCount++
       }
 
       if (this.reading) {
-        // Adaptive polling: fast when data is flowing, slower when idle
-        const delay = gotData ? 0 : Math.min(idleCount, 50)
+        // Adaptive polling: fast when data is flowing, backs off when idle
+        const delay = gotData ? 1 : Math.min(1 + idleCount, 50)
         setTimeout(tick, delay)
       }
     }

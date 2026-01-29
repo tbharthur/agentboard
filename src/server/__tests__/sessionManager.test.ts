@@ -68,7 +68,7 @@ function createTmuxRunner(sessions: SessionState[], baseIndex = 0) {
       return windows
         .map(
           (window) =>
-            `${window.id}\t${window.name}\t${window.path}\t${window.activity}\t${window.creation ?? window.activity}\t${window.command}`
+            `${window.id}|${window.name}|${window.path}|${window.activity}|${window.creation ?? window.activity}|${window.command}`
         )
         .join('\n')
     }
@@ -634,7 +634,7 @@ describe('SessionManager', () => {
         ) {
           throw new Error('unknown format: window_creation_time')
         }
-        return '1\talpha\t/tmp/alpha\t1700000000\t1700000000\tclaude'
+        return '1|alpha|/tmp/alpha|1700000000|1700000000|claude'
       }
 
       throw new Error(`Unhandled tmux command: ${args.join(' ')}`)
@@ -875,7 +875,7 @@ describe('SessionManager', () => {
       if (command === 'display-message') {
         return {
           exitCode: 0,
-          stdout: Buffer.from('80\t24'),
+          stdout: Buffer.from('80|24'),
           stderr: Buffer.from(''),
         } as ReturnType<typeof Bun.spawnSync>
       }
