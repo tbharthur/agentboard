@@ -58,8 +58,12 @@ class ControlModeParser {
         return [{ type: 'command-end', cmdNum: parseInt(errorMatch[2], 10), success: false }]
       }
 
-      // Accumulate command output
-      return [{ type: 'command-output', cmdNum: this.activeCommand.cmdNum, line }]
+      // Notifications (% prefix) can arrive between %begin and %end —
+      // fall through to parse them normally instead of swallowing them
+      if (!line.startsWith('%')) {
+        // Accumulate non-notification command output
+        return [{ type: 'command-output', cmdNum: this.activeCommand.cmdNum, line }]
+      }
     }
 
     // %output %<pane> <data>
