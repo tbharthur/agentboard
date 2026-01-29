@@ -1411,6 +1411,8 @@ async function attachTerminalPersistent(
 
   if (typeof cols === 'number' && typeof rows === 'number') {
     terminal.resize(cols, rows)
+    // Wait for tmux to process the resize and programs to re-render (SIGWINCH)
+    await Bun.sleep(150)
   }
 
   // Capture scrollback history BEFORE switching to avoid race with live output
