@@ -240,6 +240,30 @@ class TerminalProxyMock {
     this.disposed = true
   }
 
+  isReady() {
+    return this.started
+  }
+
+  getClientTty() {
+    return null
+  }
+
+  getCurrentWindow() {
+    return null
+  }
+
+  getSessionName() {
+    return this.options.sessionName
+  }
+
+  getMode() {
+    return 'control-mode' as const
+  }
+
+  getBaseSession() {
+    return this.options.baseSession
+  }
+
   emitData(data: string) {
     this.options.onData(data)
   }

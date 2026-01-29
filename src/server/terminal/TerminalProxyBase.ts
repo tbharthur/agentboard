@@ -128,6 +128,10 @@ abstract class TerminalProxyBase implements ITerminalProxy {
   abstract dispose(): Promise<void>
   abstract getClientTty(): string | null
   abstract getMode(): 'pty' | 'pipe-pane' | 'control-mode'
+
+  getBaseSession(): string {
+    return this.options.baseSession
+  }
 }
 
 function extractWindowId(target: string): string {

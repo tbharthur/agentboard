@@ -1289,13 +1289,14 @@ function initializePersistentTerminal(ws: ServerWebSocket<WSData>) {
   })
 }
 
-function createPersistentTerminal(ws: ServerWebSocket<WSData>) {
-  const sessionName = `${config.tmuxSession}-ws-${ws.data.connectionId}`
+function createPersistentTerminal(ws: ServerWebSocket<WSData>, baseSession?: string) {
+  const base = baseSession ?? config.tmuxSession
+  const sessionName = `${base}-ws-${ws.data.connectionId}`
 
   const terminal = new ControlModeProxy({
     connectionId: ws.data.connectionId,
     sessionName,
-    baseSession: config.tmuxSession,
+    baseSession: base,
     onData: (data) => {
       // ControlModeProxy uses onEvent instead, but keep functional for test
       // mocks and potential non-control-mode proxy fallback.
@@ -1368,10 +1369,11 @@ function createPersistentTerminal(ws: ServerWebSocket<WSData>) {
 }
 
 async function ensurePersistentTerminal(
-  ws: ServerWebSocket<WSData>
+  ws: ServerWebSocket<WSData>,
+  baseSession?: string
 ): Promise<ITerminalProxy | null> {
   if (!ws.data.terminal) {
-    ws.data.terminal = createPersistentTerminal(ws)
+    ws.data.terminal = createPersistentTerminal(ws, baseSession)
   }
 
   try {
@@ -1412,7 +1414,15 @@ async function attachTerminalPersistent(
     return
   }
 
-  const terminal = await ensurePersistentTerminal(ws)
+  // Extract the tmux session name from the target (e.g., "5" from "5:0").
+  // The proxy must be grouped with this session to receive %output events.
+  const targetSession = target.includes(':') ? target.slice(0, target.indexOf(':')) : config.tmuxSession
+  if (ws.data.terminal && ws.data.terminal.getBaseSession() !== targetSession) {
+    void ws.data.terminal.dispose()
+    ws.data.terminal = null
+  }
+
+  const terminal = await ensurePersistentTerminal(ws, targetSession)
   if (!terminal) {
     return
   }
