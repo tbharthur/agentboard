@@ -1410,7 +1410,9 @@ async function attachTerminalPersistent(
   }
 
   if (typeof cols === 'number' && typeof rows === 'number') {
-    terminal.resize(cols, rows)
+    // Resize the target window directly — terminal.resize() targets the
+    // control mode proxy's own pane (%0), not the session being viewed
+    resizeTmuxWindow(target, cols, rows)
     // Wait for tmux to process the resize and programs to re-render (SIGWINCH)
     await Bun.sleep(150)
   }
@@ -1432,6 +1434,27 @@ async function attachTerminalPersistent(
     send(ws, { type: 'terminal-ready', sessionId })
   } catch (error) {
     handleTerminalError(ws, sessionId, error, 'ERR_TMUX_SWITCH_FAILED')
+  }
+}
+
+function resizeTmuxWindow(target: string, cols: number, rows: number): void {
+  try {
+    // Only resize single-pane windows — multi-pane windows (e.g., Claude Code's
+    // internal layout) would have their layout broken by an external resize
+    const paneCount = Bun.spawnSync(
+      ['tmux', 'list-panes', '-t', target, '-F', '#{pane_id}'],
+      { stdout: 'pipe', stderr: 'pipe' }
+    )
+    const panes = paneCount.stdout.toString().trim().split('\n').filter(Boolean)
+    if (panes.length !== 1) {
+      return
+    }
+    Bun.spawnSync(
+      ['tmux', 'resize-window', '-t', target, '-x', String(cols), '-y', String(rows)],
+      { stdout: 'pipe', stderr: 'pipe' }
+    )
+  } catch {
+    // Ignore resize failures (e.g., window no longer exists)
   }
 }
 
@@ -1490,7 +1513,10 @@ function handleTerminalResizePersistent(
   if (sessionId !== ws.data.currentSessionId) {
     return
   }
-  ws.data.terminal?.resize(cols, rows)
+  const target = ws.data.currentTmuxTarget
+  if (target) {
+    resizeTmuxWindow(target, cols, rows)
+  }
 }
 
 function handleTerminalFlow(

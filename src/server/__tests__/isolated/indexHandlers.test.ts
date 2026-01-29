@@ -729,7 +729,9 @@ describe('server message handlers', () => {
     )
 
     expect(attached?.writes).toEqual(['ls'])
-    expect(attached?.resizes).toEqual([{ cols: 120, rows: 40 }])
+    // terminal-resize is now handled by resizeTmuxWindow() (direct tmux command),
+    // not terminal.resize(), so mock terminal doesn't see it
+    expect(attached?.resizes).toEqual([])
 
     attached?.emitData('output')
     expect(sent.some((message) => message.type === 'terminal-output')).toBe(true)
