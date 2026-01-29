@@ -828,6 +828,9 @@ process.on('SIGTERM', () => {
 })
 
 function cleanupTerminals(ws: ServerWebSocket<WSData>) {
+  if (ws.data.currentTmuxTarget) {
+    restoreTmuxWindow(ws.data.currentTmuxTarget)
+  }
   if (ws.data.terminal) {
     void ws.data.terminal.dispose()
     ws.data.terminal = null
@@ -1398,6 +1401,11 @@ async function attachTerminalPersistent(
     return
   }
 
+  // Restore previous target's dimensions before switching
+  if (ws.data.currentTmuxTarget) {
+    restoreTmuxWindow(ws.data.currentTmuxTarget)
+  }
+
   const target = tmuxTarget ?? session.tmuxWindow
   if (!isValidTmuxTarget(target)) {
     sendTerminalError(ws, sessionId, 'ERR_INVALID_WINDOW', 'Invalid tmux target', false)
@@ -1437,6 +1445,10 @@ async function attachTerminalPersistent(
   }
 }
 
+// Tracks which tmux windows were resized by an iOS client,
+// so we can restore automatic sizing on disconnect.
+const resizedWindows = new Set<string>()
+
 function resizeTmuxWindow(target: string, cols: number, rows: number): void {
   try {
     // Only resize single-pane windows — multi-pane windows (e.g., Claude Code's
@@ -1449,6 +1461,7 @@ function resizeTmuxWindow(target: string, cols: number, rows: number): void {
     if (panes.length !== 1) {
       return
     }
+    resizedWindows.add(target)
     Bun.spawnSync(
       ['tmux', 'resize-window', '-t', target, '-x', String(cols), '-y', String(rows)],
       { stdout: 'pipe', stderr: 'pipe' }
@@ -1456,6 +1469,21 @@ function resizeTmuxWindow(target: string, cols: number, rows: number): void {
   } catch {
     // Ignore resize failures (e.g., window no longer exists)
   }
+}
+
+function restoreTmuxWindow(target: string): void {
+  if (!resizedWindows.has(target)) return
+  try {
+    // Use -A (adjust) to return to automatic client-based sizing
+    // rather than forcing a fixed size that caps future resizes
+    Bun.spawnSync(
+      ['tmux', 'resize-window', '-t', target, '-A'],
+      { stdout: 'pipe', stderr: 'pipe' }
+    )
+  } catch {
+    // Ignore — window may no longer exist
+  }
+  resizedWindows.delete(target)
 }
 
 function captureTmuxHistory(target: string): string | null {
@@ -1481,6 +1509,9 @@ function captureTmuxHistory(target: string): string | null {
 
 function detachTerminalPersistent(ws: ServerWebSocket<WSData>, sessionId: string) {
   if (ws.data.currentSessionId === sessionId) {
+    if (ws.data.currentTmuxTarget) {
+      restoreTmuxWindow(ws.data.currentTmuxTarget)
+    }
     ws.data.currentSessionId = null
     ws.data.currentTmuxTarget = null
   }
