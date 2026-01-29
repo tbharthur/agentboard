@@ -196,15 +196,13 @@ function capturePane(tmuxWindow: string): string | null {
 function listAllWindows(managedSession: string, discoverPrefixes: string[]): Session[] {
   const allWindows = listAllWindowData()
   const now = Date.now()
-  const wsPrefix = `${managedSession}-ws-`
-
   const sessions: Session[] = []
 
   for (const window of allWindows) {
     const { sessionName } = window
 
-    // Skip websocket proxy sessions
-    if (sessionName.startsWith(wsPrefix)) {
+    // Skip websocket proxy sessions (named <base>-ws-<connectionId>)
+    if (sessionName.includes('-ws-')) {
       continue
     }
 

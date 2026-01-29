@@ -248,9 +248,9 @@ export class SessionManager {
   }
 
   private listExternalWindows(): Session[] {
-    const wsPrefix = `${this.sessionName}-ws-`
+    // Filter out websocket proxy sessions (named <base>-ws-<connectionId>)
     const allSessions = this.listSessions().filter(
-      (sessionName) => !sessionName.startsWith(wsPrefix)
+      (sessionName) => !sessionName.includes('-ws-')
     )
     const sessions =
       config.discoverPrefixes.length === 0

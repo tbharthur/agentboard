@@ -97,11 +97,6 @@ function pruneOrphanedWsSessions(): void {
     return
   }
 
-  const prefix = `${config.tmuxSession}-ws-`
-  if (!prefix) {
-    return
-  }
-
   let result: ReturnType<typeof Bun.spawnSync>
   try {
     result = Bun.spawnSync(
@@ -130,7 +125,8 @@ function pruneOrphanedWsSessions(): void {
     const trimmed = line.trim()
     if (!trimmed) continue
     const [name, attachedRaw] = trimmed.split('|')
-    if (!name || !name.startsWith(prefix)) continue
+    // Proxy sessions are named <base>-ws-<connectionId>
+    if (!name || !name.includes('-ws-')) continue
     const attached = Number.parseInt(attachedRaw ?? '', 10)
     if (Number.isNaN(attached) || attached > 0) continue
     try {
