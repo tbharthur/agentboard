@@ -249,7 +249,12 @@ class ControlModeProxy extends TerminalProxyBase {
     })
 
     try {
-      this.sendCommand(`select-window -t ${target}`)
+      // Target the window index without session prefix — select-window must
+      // change THIS proxy session's current window, not the original session's.
+      // The proxy is a grouped session sharing the same windows, so :N works.
+      const colonIndex = target.indexOf(':')
+      const windowIndex = colonIndex >= 0 ? target.slice(colonIndex + 1) : target
+      this.sendCommand(`select-window -t :${windowIndex}`)
       if (onReady) {
         try { onReady() } catch { /* ignore */ }
       }
