@@ -1,22 +1,80 @@
 // src/server/terminal/ControlModeProxy.ts
 
+import { readSync, writeSync, closeSync } from 'fs'
 import { TerminalProxyBase } from './TerminalProxyBase'
 import { TerminalProxyError, TerminalState } from './types'
 import { ControlModeParser } from './ControlModeParser'
 import type { ControlModeEvent } from './ControlModeTypes'
 
+// macOS fcntl constants
+const F_GETFL = 3
+const F_SETFL = 4
+const O_NONBLOCK = 0x0004
+
+// Lazy-loaded FFI — deferred to first PTY creation to avoid blocking server startup.
+// Bun's dlopen at module top-level can stall the HTTP event loop.
+let _ffi: {
+  symbols: { openpty: CallableFunction; fcntl: CallableFunction }
+  ptr: CallableFunction
+} | null = null
+
+function loadFfi() {
+  if (!_ffi) {
+    const { dlopen, FFIType, ptr } = require('bun:ffi')
+    const lib = dlopen('libSystem.B.dylib', {
+      openpty: {
+        args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr],
+        returns: FFIType.i32,
+      },
+      fcntl: {
+        args: [FFIType.i32, FFIType.i32, FFIType.i32],
+        returns: FFIType.i32,
+      },
+    })
+    _ffi = { symbols: lib.symbols, ptr }
+  }
+  return _ffi
+}
+
+/** Create a PTY pair with non-blocking master. Returns { masterFd, slaveFd }. */
+function createPty(): { masterFd: number; slaveFd: number } {
+  const { symbols, ptr } = loadFfi()
+
+  const masterBuf = new Int32Array(1)
+  const slaveBuf = new Int32Array(1)
+  const result = symbols.openpty(ptr(masterBuf), ptr(slaveBuf), null, null, null)
+  if (result !== 0) {
+    throw new Error(`openpty failed with code ${result}`)
+  }
+  const masterFd = masterBuf[0]
+  const slaveFd = slaveBuf[0]
+
+  // Set master fd to non-blocking so readSync returns EAGAIN instead of blocking
+  const flags = symbols.fcntl(masterFd, F_GETFL, 0) as number
+  if (flags >= 0) {
+    symbols.fcntl(masterFd, F_SETFL, flags | O_NONBLOCK)
+  }
+
+  return { masterFd, slaveFd }
+}
+
 /**
  * Terminal proxy using tmux control mode (-CC).
  * Provides structured output instead of raw escape sequences.
+ *
+ * tmux -CC requires a real PTY for stdin (tcgetattr check). We create a PTY
+ * pair via openpty(), give the slave end to tmux as both stdin and stdout,
+ * then read/write control mode protocol through the master fd.
  */
 class ControlModeProxy extends TerminalProxyBase {
   private process: ReturnType<typeof Bun.spawn> | null = null
   private parser = new ControlModeParser()
-  private decoder = new TextDecoder()
   private paused = new Set<string>()
   private currentPane = '%0'
   private cols = 80
   private rows = 24
+  private masterFd: number | null = null
+  private reading = false
 
   getMode(): 'control-mode' {
     return 'control-mode'
@@ -38,6 +96,7 @@ class ControlModeProxy extends TerminalProxyBase {
 
   async dispose(): Promise<void> {
     this.state = TerminalState.DEAD
+    this.reading = false
 
     if (this.process) {
       try {
@@ -46,6 +105,15 @@ class ControlModeProxy extends TerminalProxyBase {
         // Ignore
       }
       this.process = null
+    }
+
+    if (this.masterFd !== null) {
+      try {
+        closeSync(this.masterFd)
+      } catch {
+        // Ignore
+      }
+      this.masterFd = null
     }
 
     try {
@@ -83,14 +151,33 @@ class ControlModeProxy extends TerminalProxyBase {
       )
     }
 
+    // Create PTY pair — tmux -CC requires a real TTY for stdin
+    let masterFd: number
+    let slaveFd: number
+    try {
+      const pty = createPty()
+      masterFd = pty.masterFd
+      slaveFd = pty.slaveFd
+    } catch (error) {
+      this.state = TerminalState.DEAD
+      throw new TerminalProxyError(
+        'ERR_TMUX_ATTACH_FAILED',
+        error instanceof Error ? error.message : 'Failed to create PTY pair',
+        true
+      )
+    }
+
     let proc: ReturnType<typeof Bun.spawn>
     try {
       proc = this.spawn(['tmux', '-CC', 'attach', '-t', this.options.sessionName], {
         env: { ...process.env, TERM: 'xterm-256color' },
-        stdout: 'pipe',
-        stdin: 'pipe',
+        stdin: slaveFd,
+        stdout: slaveFd,
+        stderr: 'pipe',
       })
     } catch (error) {
+      closeSync(masterFd)
+      closeSync(slaveFd)
       this.state = TerminalState.DEAD
       throw new TerminalProxyError(
         'ERR_TMUX_ATTACH_FAILED',
@@ -99,19 +186,22 @@ class ControlModeProxy extends TerminalProxyBase {
       )
     }
 
+    // Close slave fd in parent — tmux owns it via spawn
+    try { closeSync(slaveFd) } catch { /* ignore */ }
+
     this.process = proc
+    this.masterFd = masterFd
 
     proc.exited.then(() => {
       this.process = null
+      this.reading = false
       this.state = TerminalState.DEAD
       this.logEvent('terminal_proxy_dead', { sessionName: this.options.sessionName, mode: this.getMode() })
       this.options.onExit?.()
     })
 
-    const stdout = proc.stdout
-    if (stdout && typeof stdout !== 'number') {
-      this.readLoop(stdout.getReader())
-    }
+    // Read control mode output from the PTY master fd
+    this.readLoop()
 
     this.readyAt = this.now()
     this.state = TerminalState.READY
@@ -170,32 +260,50 @@ class ControlModeProxy extends TerminalProxyBase {
     }
   }
 
-  private async readLoop(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const text = this.decoder.decode(value, { stream: true })
-        const events = this.parser.feed(text)
-        for (const event of events) {
-          this.handleEvent(event)
+  private readLoop(): void {
+    this.reading = true
+    const buf = Buffer.alloc(16384)
+    const decoder = new TextDecoder()
+    let idleCount = 0
+
+    const tick = () => {
+      if (!this.reading || this.masterFd === null) return
+
+      let gotData = false
+      try {
+        const n = readSync(this.masterFd, buf, 0, buf.length, null)
+        if (n > 0) {
+          gotData = true
+          idleCount = 0
+          const text = decoder.decode(buf.subarray(0, n), { stream: true })
+          const events = this.parser.feed(text)
+          for (const event of events) {
+            this.handleEvent(event)
+          }
+        }
+      } catch (error: unknown) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'EAGAIN' || code === 'EWOULDBLOCK') {
+          idleCount++
+        } else {
+          this.reading = false
+          this.logEvent('terminal_read_error', {
+            sessionName: this.options.sessionName,
+            error: error instanceof Error ? error.message : 'Read loop failed',
+            mode: this.getMode(),
+          })
+          return
         }
       }
-    } catch (error) {
-      this.logEvent('terminal_read_error', {
-        sessionName: this.options.sessionName,
-        error: error instanceof Error ? error.message : 'Read loop failed',
-        mode: this.getMode(),
-      })
-    }
 
-    const tail = this.decoder.decode()
-    if (tail) {
-      const events = this.parser.feed(tail)
-      for (const event of events) {
-        this.handleEvent(event)
+      if (this.reading) {
+        // Adaptive polling: fast when data is flowing, slower when idle
+        const delay = gotData ? 0 : Math.min(idleCount, 50)
+        setTimeout(tick, delay)
       }
     }
+
+    setTimeout(tick, 0)
   }
 
   private handleEvent(event: ControlModeEvent): void {
@@ -211,10 +319,13 @@ class ControlModeProxy extends TerminalProxyBase {
   }
 
   private sendCommand(cmd: string): void {
-    const stdin = this.process?.stdin
-    if (stdin && typeof stdin !== 'number') {
-      // FileSink has a direct write() method
-      stdin.write(cmd + '\n')
+    if (this.masterFd !== null) {
+      try {
+        const encoded = new TextEncoder().encode(cmd + '\n')
+        writeSync(this.masterFd, encoded)
+      } catch {
+        // Write failed — process may have died
+      }
     }
   }
 

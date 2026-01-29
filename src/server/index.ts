@@ -1294,7 +1294,8 @@ function createPersistentTerminal(ws: ServerWebSocket<WSData>) {
     sessionName,
     baseSession: config.tmuxSession,
     onData: (data) => {
-      // Legacy - keep for compatibility during transition
+      // ControlModeProxy uses onEvent instead, but keep functional for test
+      // mocks and potential non-control-mode proxy fallback.
       const sessionId = ws.data.currentSessionId
       if (!sessionId) {
         return
@@ -1308,6 +1309,7 @@ function createPersistentTerminal(ws: ServerWebSocket<WSData>) {
       }
       switch (event.type) {
         case 'output':
+          // Send cm-output for native markdown rendering
           send(ws, {
             type: 'cm-output',
             sessionId,
@@ -1315,6 +1317,8 @@ function createPersistentTerminal(ws: ServerWebSocket<WSData>) {
             data: event.data,
             latencyMs: event.latencyMs,
           })
+          // Also send terminal-output for legacy SwiftTerm fallback
+          send(ws, { type: 'terminal-output', sessionId, data: event.data })
           break
         case 'window-add':
           send(ws, { type: 'cm-window', sessionId, event: 'add', windowId: event.windowId })

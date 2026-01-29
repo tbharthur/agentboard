@@ -11,17 +11,30 @@ class ControlModeParser {
   private activeCommand: { cmdNum: number; timestamp: number; lines: string[] } | null = null
 
   /**
-   * Feed raw data from tmux stdout. Returns parsed events.
+   * Feed raw data from tmux. Returns parsed events.
    * Buffers partial lines until newline is received.
+   *
+   * When reading from a PTY, lines arrive with \r\n endings and may have
+   * a DCS prefix (\x1bP1000p) on the first chunk. Both are stripped.
    */
   feed(chunk: string): ControlModeEvent[] {
     this.buffer += chunk
+
+    // Strip DCS prefix from initial control mode handshake
+    if (this.buffer.startsWith('\x1bP1000p')) {
+      this.buffer = this.buffer.slice(7)
+    }
+
     const events: ControlModeEvent[] = []
 
     let newlineIdx: number
     while ((newlineIdx = this.buffer.indexOf('\n')) !== -1) {
-      const line = this.buffer.slice(0, newlineIdx)
+      let line = this.buffer.slice(0, newlineIdx)
       this.buffer = this.buffer.slice(newlineIdx + 1)
+      // Strip trailing \r (PTY adds \r\n line endings)
+      if (line.endsWith('\r')) {
+        line = line.slice(0, -1)
+      }
       const lineEvents = this.parseLine(line)
       events.push(...lineEvents)
     }
