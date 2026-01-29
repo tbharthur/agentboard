@@ -104,7 +104,9 @@ class ControlModeProxy extends TerminalProxyBase {
   }
 
   write(data: string): void {
-    this.sendCommand(`send-keys -t ${this.currentPane} -l -- ${this.escapeForTmux(data)}`)
+    // Target the viewed session's window, not the proxy's own pane (%0)
+    const target = this.currentWindow ?? this.currentPane
+    this.sendCommand(`send-keys -t ${target} -l -- ${this.escapeForTmux(data)}`)
   }
 
   resize(cols: number, rows: number): void {
